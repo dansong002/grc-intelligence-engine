@@ -111,7 +111,7 @@ export const ARCHETYPES = [
     id: "site-outage",
     label: "Physical Site Outage / DR Event",
     hint: "Loss of a location or its systems from a disaster — assessing readiness to keep operating and recover",
-    signals: ["tornado", "hurricane", "earthquake", "flood", "flooding", "wildfire", "storm", "disaster", "catastrophe", "outage", "blackout", "power outage", "offline", "operable", " down", "failover", "business continuity", "disaster recovery", "site loss", "evacuation", "unavailable", "resilience"],
+    signals: ["tornado", "hurricane", "earthquake", "flood", "flooding", "wildfire", "storm", "disaster", "catastrophe", "outage", "blackout", "power outage", "offline", "operable", "down", "failover", "business continuity", "disaster recovery", "site loss", "evacuation", "unavailable", "resilience", "temperature", "food safety", "monitoring system", "sensor", "cold chain", "refrigeration", "food temperature", "haccp", "system failure"],
     risks: ["RSK-RES-BIA-001", "RSK-RES-DRP-001", "RSK-RES-SITE-001", "RSK-RES-BKP-001", "RSK-RES-COMM-001", "RSK-RES-PWR-001", "RSK-TEC-AVL-001", "RSK-TPR-DR-001"],
   },
 ];

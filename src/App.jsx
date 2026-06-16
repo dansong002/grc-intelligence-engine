@@ -33,7 +33,10 @@ function classify(text) {
   return ARCHETYPES.map((a) => {
     let score = 0;
     const matched = [];
-    a.signals.forEach((s) => { if (t.includes(s)) { score += 1; matched.push(s); } });
+    a.signals.forEach((s) => {
+      const re = new RegExp("(?:^|\\b|\\s)" + s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:$|\\b|\\s)");
+      if (re.test(t)) { score += 1; matched.push(s); }
+    });
     return { archetype: a, score, matched };
   }).filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
 }
