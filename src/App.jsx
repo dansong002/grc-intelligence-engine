@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import "./app.css";
 import {
   LIBRARY_VERSION,
   RATING_VALUE,
@@ -13,6 +14,20 @@ import {
   CONTROL_PROCEDURES,
   DOC_TIERS,
   CONTROL_DOCUMENTS,
+  CONVERGENCE,
+  SCF_VERSION,
+  SCF_DOMAINS,
+  SCF_CONTROLS,
+  SCF_MAPPING,
+  BIA_DIMENSIONS,
+  BIA_PROFILES,
+  MATURITY_LEVELS,
+  MATURITY_PROFILES,
+  CONTROL_AUDIT,
+  FRAMEWORKS,
+  FRAMEWORK_REQUIREMENTS,
+  FRAMEWORK_ALIASES,
+  CONTROL_FRAMEWORK_MAP,
 } from "./knowledge";
 
 /* ============================================================================
@@ -21,12 +36,25 @@ import {
 
 const C = {
   canvas: "#0E1419", panel: "#161E26", panelHi: "#1D2832", line: "#26333F",
-  ink: "#E8EEF2", inkDim: "#93A4B1", inkFaint: "#5E6F7C",
+  ink: "#E8EEF2", inkDim: "#93A4B1", inkFaint: "#7E8E9E",
   amber: "#F5A623", amberSoft: "#3A2E18", red: "#E5544B", redSoft: "#3A1E1C",
   teal: "#46B3A4", tealSoft: "#16302D", violet: "#8B7FD6",
 };
 const RATING_COLOR = { Critical: C.red, High: C.amber, Medium: C.teal, Low: C.inkDim };
 const TYPE_COLOR = { Preventive: C.teal, Detective: C.violet, Corrective: C.amber };
+
+// Reverse index of the control crosswalk: framework id -> requirement ref -> control ids.
+// Lets the framework reference cards show which controls satisfy each requirement.
+const REQUIREMENT_CONTROLS = {};
+Object.entries(CONTROL_FRAMEWORK_MAP).forEach(([cid, fws]) => {
+  Object.entries(fws).forEach(([fwId, refs]) => {
+    if (!REQUIREMENT_CONTROLS[fwId]) REQUIREMENT_CONTROLS[fwId] = {};
+    refs.forEach((ref) => {
+      if (!REQUIREMENT_CONTROLS[fwId][ref]) REQUIREMENT_CONTROLS[fwId][ref] = [];
+      if (!REQUIREMENT_CONTROLS[fwId][ref].includes(cid)) REQUIREMENT_CONTROLS[fwId][ref].push(cid);
+    });
+  });
+});
 
 function classify(text) {
   const t = (text || "").toLowerCase();
@@ -39,6 +67,23 @@ function classify(text) {
     });
     return { archetype: a, score, matched };
   }).filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
+}
+
+function parseFrameworkRef(str) {
+  const s = str.trim();
+  for (const [alias, fwId] of Object.entries(FRAMEWORK_ALIASES)) {
+    if (s === alias || s.startsWith(alias + ":") || s.startsWith(alias + " ")) {
+      const rest = s.slice(alias.length).replace(/^[\s:]+/, "").trim();
+      return { fwId, ref: rest || null };
+    }
+  }
+  const colon = s.indexOf(":");
+  if (colon > 0) {
+    const prefix = s.slice(0, colon).trim();
+    const candidateId = FRAMEWORK_ALIASES[prefix];
+    if (candidateId) return { fwId: candidateId, ref: s.slice(colon + 1).trim() || null };
+  }
+  return { fwId: null, ref: s };
 }
 
 function buildAssessment(text) {
@@ -61,7 +106,37 @@ function buildAssessment(text) {
   const controls = Object.values(controlMap).filter((c) => c.control);
 
   const fw = new Set();
-  risks.forEach((r) => r.frameworks.forEach((f) => fw.add(f.split(":")[0].trim())));
+  risks.forEach((r) => r.frameworks.forEach((f) => {
+    const parsed = parseFrameworkRef(f);
+    if (parsed.fwId && FRAMEWORKS[parsed.fwId]) fw.add(parsed.fwId);
+  }));
+
+  // Precise framework scope from the curated control → requirement crosswalk.
+  // For every in-scope control, attach it to the exact requirement it satisfies
+  // in each framework. This also widens the implicated-framework set to any
+  // framework a control maps to (e.g. COBIT) even if no risk string cited it.
+  const frameworkScope = {};
+  controls.forEach((c) => {
+    const cid = c.control.id;
+    const map = CONTROL_FRAMEWORK_MAP[cid];
+    if (!map) return;
+    Object.entries(map).forEach(([fwId, refs]) => {
+      if (!FRAMEWORKS[fwId]) return;
+      fw.add(fwId);
+      if (!frameworkScope[fwId]) frameworkScope[fwId] = {};
+      refs.forEach((ref) => {
+        if (!frameworkScope[fwId][ref]) frameworkScope[fwId][ref] = { controlIds: [] };
+        if (!frameworkScope[fwId][ref].controlIds.includes(cid)) frameworkScope[fwId][ref].controlIds.push(cid);
+      });
+    });
+  });
+  // Frameworks implicated, ordered with the two highlighted standards first.
+  const FW_PRIORITY = { "SOX-ITGC": 0, "PCI-DSS": 1 };
+  const frameworkIds = Array.from(fw).filter((id) => FRAMEWORKS[id]).sort((a, b) => {
+    const pa = FW_PRIORITY[a] ?? 9, pb = FW_PRIORITY[b] ?? 9;
+    if (pa !== pb) return pa - pb;
+    return FRAMEWORKS[a].name.localeCompare(FRAMEWORKS[b].name);
+  });
 
   const dist = (key) => {
     const d = { Critical: 0, High: 0, Medium: 0, Low: 0 };
@@ -83,12 +158,60 @@ function buildAssessment(text) {
   }));
   const docCount = Object.keys(docMap).length;
 
+  const convergence = CONVERGENCE.filter((c) => riskIds.includes(c.spineRisk));
+
+  // Business Impact Analysis — worst case per dimension across active archetypes.
+  const bia = BIA_DIMENSIONS.map((dim) => {
+    let best = null;
+    active.forEach((m) => {
+      const profile = BIA_PROFILES[m.archetype.id];
+      const cell = profile && profile[dim.id];
+      if (cell && (!best || RATING_VALUE[cell.rating] > RATING_VALUE[best.rating])) {
+        best = cell;
+      }
+    });
+    return { id: dim.id, label: dim.label, rating: best ? best.rating : "Low", note: best ? best.note : "" };
+  });
+  const biaOverall = VALUE_RATING[Math.max(1, ...bia.map((d) => RATING_VALUE[d.rating]))];
+
+  // Maturity model — one entry per in-scope risk domain that has a curated profile.
+  const domainsInScope = [];
+  risks.forEach((r) => { if (!domainsInScope.includes(r.domain)) domainsInScope.push(r.domain); });
+  const maturity = domainsInScope
+    .filter((d) => MATURITY_PROFILES[d])
+    .map((d) => ({ domain: d, ...MATURITY_PROFILES[d] }));
+
+  // Executive summary inputs.
+  const topRisks = [...risks].sort((a, b) => RATING_VALUE[b.inherent] - RATING_VALUE[a.inherent]).slice(0, 3);
+  const topControls = [...controls].sort((a, b) => {
+    if (b.addresses.length !== a.addresses.length) return b.addresses.length - a.addresses.length;
+    return (CONTROL_REDUCTION[b.control.type] || 0) - (CONTROL_REDUCTION[a.control.type] || 0);
+  }).slice(0, 3);
+
+  // Go / No-Go — deterministic, from the TARGET residual posture.
+  const residualHC = residualDist.Critical + residualDist.High;
+  const inherentHC = inherentDist.Critical + inherentDist.High;
+  let recommendation;
+  if (residualDist.Critical > 0) {
+    recommendation = { decision: "Hold", tone: "red",
+      rationale: residualDist.Critical + " risk" + (residualDist.Critical === 1 ? " remains" : "s remain") + " Critical even after the recommended controls. Redesign the approach or add compensating controls before proceeding." };
+  } else if (residualHC > 0) {
+    recommendation = { decision: "Proceed with conditions", tone: "amber",
+      rationale: residualHC + " high/critical risk" + (residualHC === 1 ? "" : "s") + " remain after the recommended controls are in place. Proceed only with senior sign-off and a tracked plan to close them." };
+  } else {
+    recommendation = { decision: "Proceed", tone: "teal",
+      rationale: "With the recommended controls implemented and operating effectively, target residual risk lands within tolerance. Proceed while holding the implementation plan accountable." };
+  }
+
   return {
     archetypes: active.map((a) => ({ ...a.archetype, matched: a.matched })),
-    risks, controls, docsByTier, docCount, frameworks: Array.from(fw).sort(),
+    risks, controls, docsByTier, docCount, convergence,
+    frameworks: frameworkIds.map((id) => FRAMEWORKS[id]),
+    frameworkIds,
+    frameworkScope,
     inherentDist, residualDist,
-    inherentHC: inherentDist.Critical + inherentDist.High,
-    residualHC: residualDist.Critical + residualDist.High,
+    inherentHC, residualHC,
+    bia, biaOverall, maturity, topRisks, topControls, recommendation,
   };
 }
 
@@ -106,7 +229,32 @@ function Pill({ children, color, soft }) {
   );
 }
 function Dot({ color }) {
-  return <span style={{ width: 7, height: 7, borderRadius: 99, background: color, flexShrink: 0 }} />;
+  return <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: 99, background: color, flexShrink: 0 }} />;
+}
+// Severity as a distinct SHAPE (not color alone): triangle/diamond/circle/dash.
+// Lets color-blind reviewers read Critical/High/Medium/Low without relying on hue.
+function SevIcon({ level, size = 10 }) {
+  const c = RATING_COLOR[level] || C.inkDim;
+  const common = { width: size, height: size, viewBox: "0 0 12 12", focusable: "false", "aria-hidden": "true", style: { flexShrink: 0, display: "block" } };
+  if (level === "Critical") return <svg {...common}><path d="M6 1 L11 10.5 H1 Z" fill={c} /></svg>;
+  if (level === "High") return <svg {...common}><path d="M6 1 L11 6 L6 11 L1 6 Z" fill={c} /></svg>;
+  if (level === "Medium") return <svg {...common}><circle cx="6" cy="6" r="4.4" fill={c} /></svg>;
+  return <svg {...common}><rect x="1.5" y="5" width="9" height="2.2" rx="1.1" fill={c} /></svg>;
+}
+// Brand mark: a 3-node graph triad — the engine's thesis is a navigable
+// risk↔control↔framework knowledge graph, so the logo says exactly that.
+function BrandMark({ size = 26 }) {
+  const g = Math.round(size * 0.66);
+  return (
+    <div aria-hidden="true" style={{ width: size, height: size, borderRadius: Math.round(size * 0.27), background: `linear-gradient(135deg, ${C.amber}, ${C.red})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <svg width={g} height={g} viewBox="0 0 24 24" fill="none">
+        <path d="M12 6.8 L6.8 16.4 L17.2 16.4 Z" stroke="#1a1206" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx="12" cy="6.8" r="2.5" fill="#1a1206" />
+        <circle cx="6.8" cy="16.4" r="2.5" fill="#1a1206" />
+        <circle cx="17.2" cy="16.4" r="2.5" fill="#1a1206" />
+      </svg>
+    </div>
+  );
 }
 function Field({ label, children }) {
   return (
@@ -117,7 +265,7 @@ function Field({ label, children }) {
   );
 }
 
-function SourceDrawer({ item, kind, onClose }) {
+function SourceDrawer({ item, kind, onClose, onNavigate }) {
   const closeRef = useRef(null);
   useEffect(() => {
     if (!item) return;
@@ -135,7 +283,7 @@ function SourceDrawer({ item, kind, onClose }) {
     ? item.residual.breakdown.Preventive + "P / " + item.residual.breakdown.Detective + "D / " + item.residual.breakdown.Corrective + "C = " + item.residual.points + " pts " + (item.residual.levels === 0 ? "(no level change)" : "(down " + item.residual.levels + " level" + (item.residual.levels > 1 ? "s" : "") + ")")
     : "";
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", justifyContent: "flex-end", background: "rgba(6,10,13,0.6)", backdropFilter: "blur(2px)" }} onClick={onClose}>
+    <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", justifyContent: "flex-end", background: "rgba(6,10,13,0.6)", backdropFilter: "blur(2px)" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "min(480px, 92vw)", height: "100%", background: C.panel, borderLeft: `1px solid ${C.line}`, padding: "28px 26px", overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
           <Pill color={C.inkFaint} soft="transparent">LIBRARY SOURCE · {kind}</Pill>
@@ -149,14 +297,14 @@ function SourceDrawer({ item, kind, onClose }) {
             <Field label="Domain · Class">{item.domain} · {item.class}</Field>
             <Field label="Risk statement"><span style={{ color: C.ink }}>{item.statement}</span></Field>
             <Field label="Inherent rating">
-              <Pill color={RATING_COLOR[item.inherent]} soft={`${RATING_COLOR[item.inherent]}1A`}><Dot color={RATING_COLOR[item.inherent]} /> {item.inherent}</Pill>
+              <Pill color={RATING_COLOR[item.inherent]} soft={`${RATING_COLOR[item.inherent]}1A`}><SevIcon level={item.inherent} /> {item.inherent}</Pill>
             </Field>
             {item.residual && (
               <Field label="Target residual (with controls in place)">
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <Pill color={RATING_COLOR[item.inherent]} soft={`${RATING_COLOR[item.inherent]}1A`}>{item.inherent}</Pill>
                   <span style={{ color: C.inkFaint }}>{"→"}</span>
-                  <Pill color={RATING_COLOR[item.residual.residual]} soft={`${RATING_COLOR[item.residual.residual]}1A`}><Dot color={RATING_COLOR[item.residual.residual]} />{item.residual.residual}</Pill>
+                  <Pill color={RATING_COLOR[item.residual.residual]} soft={`${RATING_COLOR[item.residual.residual]}1A`}><SevIcon level={item.residual.residual} />{item.residual.residual}</Pill>
                 </div>
                 <Mono style={{ fontSize: 12, color: C.inkFaint, lineHeight: 1.55 }}>{reductionLine}</Mono>
                 <div style={{ fontSize: 11.5, color: C.inkFaint, lineHeight: 1.5, marginTop: 8, fontStyle: "italic" }}>Target residual assumes the mapped controls are implemented and operating. It is not current-state.</div>
@@ -164,7 +312,7 @@ function SourceDrawer({ item, kind, onClose }) {
             )}
             <Field label="Mitigating controls">
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {item.controls.map((c) => <Mono key={c} style={{ fontSize: 11, color: C.teal, border: `1px solid ${C.teal}33`, padding: "2px 7px", borderRadius: 4 }}>{c}</Mono>)}
+                {item.controls.map((c) => <ChipLink key={c} label={c} onClick={() => onNavigate && onNavigate(c, "CONTROL")} />)}
               </div>
             </Field>
             <Field label="Frameworks implicated">
@@ -172,6 +320,21 @@ function SourceDrawer({ item, kind, onClose }) {
                 {item.frameworks.map((f) => <span key={f} style={{ color: C.violet, fontSize: 13 }}>{f}</span>)}
               </div>
             </Field>
+            {(() => { const paths = CONVERGENCE.filter((c) => c.spineRisk === item.id); return paths.length > 0 ? (
+              <Field label={"Convergence cascades (" + paths.length + ")"}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {paths.map((p) => (
+                    <div key={p.id} style={{ background: C.panelHi, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.line}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <Mono style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>{p.id}</Mono>
+                        <Pill color={C.red} soft={`${C.red}18`}>{p.impactDomain}</Pill>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.45 }}>{p.chain.join(" → ")}</div>
+                    </div>
+                  ))}
+                </div>
+              </Field>
+            ) : null; })()}
           </>
         )}
 
@@ -179,6 +342,13 @@ function SourceDrawer({ item, kind, onClose }) {
           <>
             <Field label="Control type"><Pill color={TYPE_COLOR[item.type]} soft={`${TYPE_COLOR[item.type]}1A`}>{item.type}</Pill></Field>
             <Field label="Control statement"><span style={{ color: C.ink }}>{item.statement}</span></Field>
+            {(() => { const risks = Object.values(RISKS).filter((r) => r.controls.includes(item.id)); return risks.length > 0 ? (
+              <Field label="Addresses risks">
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {risks.map((r) => <ChipLink key={r.id} label={r.id} color={RATING_COLOR[r.inherent]} onClick={() => onNavigate && onNavigate(r.id, "RISK")} />)}
+                </div>
+              </Field>
+            ) : null; })()}
             <Field label="Suggested owner">{item.owner}</Field>
             <Field label="Frequency">{item.frequency}</Field>
             <Field label="Evidence an auditor expects"><span style={{ color: C.ink }}>{item.evidence}</span></Field>
@@ -192,10 +362,110 @@ function SourceDrawer({ item, kind, onClose }) {
             {item.procedures && item.procedures.testing && (
               <Field label="Audit test procedure"><span style={{ color: C.ink }}>{item.procedures.testing}</span></Field>
             )}
+            {SCF_MAPPING[item.id] && (
+              <Field label={"SCF " + SCF_VERSION + " cross-reference"}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {SCF_MAPPING[item.id].map((sid) => {
+                    const s = SCF_CONTROLS[sid];
+                    return s ? (
+                      <div key={sid} style={{ background: C.panelHi, borderRadius: 6, padding: "8px 10px", border: `1px solid ${C.line}` }}>
+                        <Mono style={{ fontSize: 11, color: C.amber, fontWeight: 600 }}>{s.id}</Mono>
+                        <div style={{ fontSize: 12.5, color: C.ink, marginTop: 3, fontWeight: 500 }}>{s.title}</div>
+                        <div style={{ fontSize: 11.5, color: C.inkFaint, marginTop: 2, lineHeight: 1.4 }}>{s.desc}</div>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              </Field>
+            )}
+            {(() => {
+              const map = CONTROL_FRAMEWORK_MAP[item.id];
+              if (!map) return null;
+              const fwIds = Object.keys(map).filter((id) => FRAMEWORKS[id]).sort((a, b) => FRAMEWORKS[a].name.localeCompare(FRAMEWORKS[b].name));
+              const totalRefs = fwIds.reduce((n, fid) => n + map[fid].length, 0);
+              return fwIds.length > 0 ? (
+                <Field label={"Framework cross-reference (" + totalRefs + " requirements across " + fwIds.length + " frameworks)"}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {fwIds.map((fid) => {
+                      const fwk = FRAMEWORKS[fid];
+                      const accent = fwk.kind === "regulation" ? C.red : C.violet;
+                      return (
+                        <div key={fid} style={{ background: C.panelHi, borderRadius: 6, padding: "8px 10px", border: `1px solid ${C.line}` }}>
+                          <div onClick={() => onNavigate && onNavigate(fid, "FRAMEWORK")} role="button" tabIndex={0}
+                            onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && onNavigate) { e.preventDefault(); onNavigate(fid, "FRAMEWORK"); } }}
+                            style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, cursor: "pointer" }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: accent }}>{fwk.name}</span>
+                            <Mono style={{ fontSize: 10, color: C.inkFaint }}>{fwk.version}</Mono>
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {map[fid].map((ref) => {
+                              const meta = (FRAMEWORK_REQUIREMENTS[fid] || []).find((r) => r.ref === ref);
+                              return (
+                                <span key={ref} title={meta ? meta.title : ref} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: C.ink, background: `${accent}14`, border: `1px solid ${accent}33`, padding: "2px 7px", borderRadius: 5 }}>{ref}</span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Field>
+              ) : null;
+            })()}
           </>
         )}
 
-        <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.line}`, fontSize: 12, color: C.inkFaint, lineHeight: 1.6 }}>This entry comes from the curated knowledge library (v{LIBRARY_VERSION}), not generated on the fly.</div>
+        {kind === "FRAMEWORK" && (
+          <>
+            <Field label="Type"><Pill color={item.kind === "regulation" ? C.red : C.violet} soft={`${item.kind === "regulation" ? C.red : C.violet}1A`}>{item.kind === "regulation" ? "Regulation" : "Control Framework"}</Pill></Field>
+            <Field label="Version"><Mono style={{ color: C.ink }}>{item.version}</Mono></Field>
+            <Field label="Publisher">{item.publisher}</Field>
+            {item.date && <Field label="Date">{item.date}</Field>}
+            {item.jurisdiction && <Field label="Jurisdiction">{item.jurisdiction}</Field>}
+            <Field label="Summary"><span style={{ color: C.ink }}>{item.summary}</span></Field>
+            {item.note && <Field label="Note"><span style={{ color: C.inkDim, fontStyle: "italic" }}>{item.note}</span></Field>}
+            {FRAMEWORK_REQUIREMENTS[item.id] && (
+              <Field label={"Requirements / objectives (" + FRAMEWORK_REQUIREMENTS[item.id].length + ")"}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {FRAMEWORK_REQUIREMENTS[item.id].map((req) => {
+                    const mappedCtls = (REQUIREMENT_CONTROLS[item.id] || {})[req.ref] || [];
+                    return (
+                    <div key={req.ref} style={{ background: C.panelHi, borderRadius: 6, padding: "8px 10px", border: `1px solid ${C.line}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                        <Mono style={{ fontSize: 11, color: C.violet, fontWeight: 600 }}>{req.ref}</Mono>
+                        <span style={{ fontSize: 11, color: C.inkFaint }}>{req.group}</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{req.title}</div>
+                      <div style={{ fontSize: 11.5, color: C.inkDim, marginTop: 2, lineHeight: 1.4 }}>{req.intent}</div>
+                      {mappedCtls.length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                          <span style={{ fontSize: 10, color: C.inkFaint, alignSelf: "center" }}>Satisfied by</span>
+                          {mappedCtls.map((cid) => <ChipLink key={cid} label={cid} color={C.teal} onClick={() => onNavigate && onNavigate(cid, "CONTROL")} />)}
+                        </div>
+                      )}
+                    </div>
+                    );
+                  })}
+                </div>
+              </Field>
+            )}
+            {(() => {
+              const mapped = Object.values(RISKS).filter((r) => r.frameworks.some((f) => {
+                const p = parseFrameworkRef(f);
+                return p.fwId === item.id;
+              }));
+              return mapped.length > 0 ? (
+                <Field label={"Risks referencing this " + (item.kind === "regulation" ? "regulation" : "framework") + " (" + mapped.length + ")"}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {mapped.map((r) => <ChipLink key={r.id} label={r.id} color={RATING_COLOR[r.inherent]} onClick={() => onNavigate && onNavigate(r.id, "RISK")} />)}
+                  </div>
+                </Field>
+              ) : null;
+            })()}
+          </>
+        )}
+
+        <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.line}`, fontSize: 12, color: C.inkFaint, lineHeight: 1.6 }}>This entry comes from the curated knowledge library (v{LIBRARY_VERSION}), cross-referenced with SCF {SCF_VERSION}.</div>
       </div>
     </div>
   );
@@ -222,7 +492,8 @@ function SectionLabel({ n, title, hint }) {
 }
 function Card({ children, onClick }) {
   return (
-    <div onClick={onClick} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "14px 15px", cursor: "pointer", transition: "all .15s" }}
+    <div data-card onClick={onClick} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+      style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer", transition: "all .15s" }}
       onMouseEnter={(e) => { e.currentTarget.style.background = C.panelHi; e.currentTarget.style.borderColor = C.inkFaint + "66"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = C.panel; e.currentTarget.style.borderColor = C.line; }}>
       {children}
@@ -234,6 +505,149 @@ function Why({ title, body }) {
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 18px" }}>
       <div style={{ fontSize: 14.5, fontWeight: 600, color: C.ink, marginBottom: 8, lineHeight: 1.35 }}>{title}</div>
       <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.55 }}>{body}</div>
+    </div>
+  );
+}
+
+// Gap 1 — orientation at the point of use. Three steps + the determinism promise.
+function HowItWorks({ onExploreLibrary }) {
+  const steps = [
+    { n: "1", t: "Describe", d: "Write a plain-language description of a technology initiative — name the system, the data it handles, and key integrations. The more concrete, the better the match." },
+    { n: "2", t: "Generate", d: "The engine classifies it against curated archetypes (no LLM in the core path) and assembles risks, controls, audit evidence, framework obligations, a maturity read, and a go/no-go." },
+    { n: "3", t: "Drill in", d: "Every ID is a link. Open any risk, control, or framework to see its sourced entry and how it connects to the rest of the knowledge graph — then export the package as a standalone brief." },
+  ];
+  return (
+    <section style={{ marginTop: 6, paddingTop: 30 }}>
+      <Mono style={{ fontSize: 12, letterSpacing: "0.1em", color: C.amber }}>HOW IT WORKS</Mono>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginTop: 14 }} className="grid2">
+        {steps.map((s) => (
+          <div key={s.n} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 9 }}>
+              <span style={{ width: 26, height: 26, borderRadius: 7, background: `${C.amber}1A`, border: `1px solid ${C.amber}55`, color: C.amber, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700 }}>{s.n}</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>{s.t}</span>
+            </div>
+            <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.55 }}>{s.d}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 12, fontSize: 12.5, color: C.inkFaint, lineHeight: 1.55 }}>
+        <Mono style={{ color: C.teal }}>Deterministic</Mono> · every line traces to a sourced library entry · runs entirely in your browser — no initiative data leaves the page.
+        {onExploreLibrary && <> · <span role="button" tabIndex={0} onClick={onExploreLibrary} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onExploreLibrary(); } }} style={{ color: C.teal, cursor: "pointer", fontWeight: 600 }}>Explore the Library →</span></>}
+      </div>
+    </section>
+  );
+}
+
+// Gap 4 — make the color conventions and the residual caveat persistent, not footnoted.
+function Legend() {
+  const sw = (color, label) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.inkDim }}>
+      <span style={{ width: 9, height: 9, borderRadius: 3, background: color, display: "inline-block", flexShrink: 0 }} /> {label}
+    </span>
+  );
+  return (
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 14px", marginBottom: 18, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 11, flexWrap: "wrap", alignItems: "center" }}>
+        <Mono style={{ fontSize: 9.5, color: C.inkFaint, letterSpacing: "0.06em" }}>RISK</Mono>
+        {sw(C.red, "Critical")}{sw(C.amber, "High")}{sw(C.teal, "Medium")}{sw(C.inkDim, "Low")}
+      </div>
+      <div style={{ width: 1, height: 16, background: C.line }} />
+      <div style={{ display: "flex", gap: 11, flexWrap: "wrap", alignItems: "center" }}>
+        <Mono style={{ fontSize: 9.5, color: C.inkFaint, letterSpacing: "0.06em" }}>CONTROL</Mono>
+        {sw(C.teal, "Preventive")}{sw(C.violet, "Detective")}{sw(C.amber, "Corrective")}
+      </div>
+      <div style={{ flex: 1, minWidth: 240, fontSize: 11.5, color: C.inkFaint, lineHeight: 1.5 }}>
+        <strong style={{ color: C.inkDim, fontWeight: 600 }}>Residual&#42;</strong> = posture after controls are implemented &amp; operating, not current state. <strong style={{ color: C.inkDim, fontWeight: 600 }}>Maturity "current"</strong> is an assumed baseline.
+      </div>
+    </div>
+  );
+}
+
+// Gap 3 — a sticky outline of the generated package with scroll-spy.
+function SectionNav({ sections }) {
+  const [active, setActive] = useState(sections[0] ? sections[0].id : null);
+  useEffect(() => {
+    const compute = () => {
+      let cur = sections[0] ? sections[0].id : null;
+      for (const s of sections) {
+        const el = document.getElementById("sec-" + s.id);
+        if (el && el.getBoundingClientRect().top <= 140) cur = s.id;
+      }
+      setActive(cur);
+    };
+    compute();
+    window.addEventListener("scroll", compute, { passive: true });
+    window.addEventListener("resize", compute, { passive: true });
+    return () => { window.removeEventListener("scroll", compute); window.removeEventListener("resize", compute); };
+  }, [sections]);
+  const go = (id) => { const el = document.getElementById("sec-" + id); if (!el) return; const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); };
+  return (
+    <nav aria-label="Package sections" style={{ position: "sticky", top: 57, zIndex: 15, background: `${C.canvas}E6`, backdropFilter: "blur(10px)", borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, margin: "0 -24px 24px", padding: "8px 24px", display: "flex", gap: 6, overflowX: "auto" }}>
+      {sections.map((s, i) => {
+        const on = active === s.id;
+        return (
+          <button key={s.id} onClick={() => go(s.id)} title={s.title} aria-current={on ? "true" : undefined} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6, minHeight: 32, background: on ? C.panelHi : "transparent", border: `1px solid ${on ? C.amber + "66" : C.line}`, color: on ? C.ink : C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: on ? C.amber : C.inkFaint }}>{String(i + 1).padStart(2, "0")}</span>
+            {s.title}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+/* ---- convergence flow visual ---- */
+function CascadeFlow({ chain, spineRisk, impactDomain, onRiskClick }) {
+  const nodeColors = [
+    { bg: C.amberSoft, border: C.amber, text: C.amber },
+    { bg: C.panelHi, border: C.inkFaint, text: C.inkDim },
+    { bg: C.redSoft, border: C.red, text: C.red },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, padding: "4px 0" }}>
+      {chain.map((step, i) => {
+        const colors = nodeColors[Math.min(i, nodeColors.length - 1)];
+        const isLast = i === chain.length - 1;
+        return (
+          <React.Fragment key={i}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 28, flexShrink: 0 }}>
+                <div style={{
+                  width: 12, height: 12, borderRadius: 99, border: `2px solid ${colors.border}`,
+                  background: colors.bg, boxShadow: `0 0 8px ${colors.border}44`,
+                }} />
+              </div>
+              <div style={{
+                flex: 1, background: colors.bg, border: `1px solid ${colors.border}40`,
+                borderRadius: 8, padding: "10px 14px",
+              }}>
+                <div style={{ fontSize: 13, fontWeight: isLast ? 600 : 400, color: colors.text, lineHeight: 1.4 }}>{step}</div>
+                {i === 0 && spineRisk && (
+                  <div style={{ marginTop: 5 }}>
+                    <Mono style={{ fontSize: 10, color: C.inkFaint }}>SPINE RISK: </Mono>
+                    <Mono onClick={onRiskClick} style={{ fontSize: 10, color: C.teal, cursor: onRiskClick ? "pointer" : "default", textDecoration: onRiskClick ? "underline" : "none", textDecorationColor: `${C.teal}55`, textUnderlineOffset: 2 }}>{spineRisk}</Mono>
+                  </div>
+                )}
+                {isLast && impactDomain && (
+                  <div style={{ marginTop: 6 }}>
+                    <Pill color={C.red} soft={`${C.red}18`}>{impactDomain}</Pill>
+                  </div>
+                )}
+              </div>
+            </div>
+            {!isLast && (
+              <div style={{ display: "flex", alignItems: "center", width: 28, flexShrink: 0 }}>
+                <div style={{ width: 1, height: 20, background: `${C.inkFaint}44`, marginLeft: 13.5 }}>
+                  <svg width="7" height="20" viewBox="0 0 7 20" style={{ display: "block", marginLeft: -3 }}>
+                    <line x1="3.5" y1="0" x2="3.5" y2="14" stroke={C.inkFaint} strokeWidth="1" strokeOpacity="0.35" />
+                    <polygon points="0.5,14 6.5,14 3.5,19" fill={C.inkFaint} fillOpacity="0.5" />
+                  </svg>
+                </div>
+              </div>
+            )}
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -258,10 +672,13 @@ function Segmented({ tabs, active, onChange }) {
 function ChipLink({ label, onClick, color }) {
   const c = color || C.teal;
   return (
-    <span onClick={onClick}
-      onMouseEnter={(e) => { e.currentTarget.style.background = c + "22"; e.currentTarget.style.borderColor = c + "88"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = c + "33"; }}
-      style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: c, border: `1px solid ${c}33`, padding: "2px 7px", borderRadius: 4, cursor: "pointer", background: "transparent", transition: "background .12s, border-color .12s" }}>{label}</span>
+    <span onClick={onClick} role="button" tabIndex={0} title="Open source entry →"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick && onClick(); } }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = c + "26"; e.currentTarget.style.borderColor = c + "99"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = c + "10"; e.currentTarget.style.borderColor = c + "44"; }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 3, minHeight: 24, lineHeight: 1, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: c, border: `1px solid ${c}44`, padding: "0 7px 0 9px", borderRadius: 5, cursor: "pointer", background: c + "10", transition: "background .12s, border-color .12s" }}>
+      {label}<span aria-hidden="true" style={{ fontSize: 8.5, opacity: 0.7, marginTop: -1 }}>↗</span>
+    </span>
   );
 }
 
@@ -271,34 +688,35 @@ function EmptyNote({ text }) {
   );
 }
 
-function LibraryBrowser({ onOpen }) {
+function LibraryBrowser({ onOpen, onNavigate }) {
   const [tab, setTab] = useState("risks");
   const [q, setQ] = useState("");
+  const [expandedDomain, setExpandedDomain] = useState(null);
   const ql = q.trim().toLowerCase();
 
   const allRisks = Object.values(RISKS);
   const allControls = Object.values(CONTROLS);
 
-  const fwMap = {};
-  allRisks.forEach((r) => r.frameworks.forEach((f) => {
-    const name = f.split(":")[0].trim();
-    if (!fwMap[name]) fwMap[name] = [];
-    if (!fwMap[name].includes(r.id)) fwMap[name].push(r.id);
-  }));
-  const frameworks = Object.keys(fwMap).map((name) => ({ name, ids: fwMap[name] })).sort((a, b) => b.ids.length - a.ids.length);
+  const allFrameworks = Object.values(FRAMEWORKS);
+  const fwControlFrameworks = allFrameworks.filter((f) => f.kind === "framework");
+  const fwRegulations = allFrameworks.filter((f) => f.kind === "regulation");
 
   const risks = allRisks.filter((r) => !ql || (r.id + " " + r.title + " " + r.domain + " " + r.class).toLowerCase().includes(ql));
   const controls = allControls.filter((c) => !ql || (c.id + " " + c.title + " " + c.type + " " + c.owner).toLowerCase().includes(ql));
-  const arches = ARCHETYPES.filter((a) => !ql || (a.label + " " + a.hint).toLowerCase().includes(ql));
-  const fws = frameworks.filter((f) => !ql || f.name.toLowerCase().includes(ql));
+  const arches = ARCHETYPES.filter((a) => !ql || (a.label + " " + a.hint + " " + a.signals.join(" ")).toLowerCase().includes(ql));
+  const fws = allFrameworks.filter((f) => !ql || (f.id + " " + f.name + " " + f.version + " " + f.publisher).toLowerCase().includes(ql));
+  const convs = CONVERGENCE.filter((c) => !ql || (c.id + " " + c.spineLabel + " " + c.impactDomain + " " + c.impact).toLowerCase().includes(ql));
+  const scfDomains = SCF_DOMAINS.filter((d) => !ql || (d.id + " " + d.name).toLowerCase().includes(ql));
 
   const tabs = [
     { id: "risks", label: "Risks (" + allRisks.length + ")" },
     { id: "controls", label: "Controls (" + allControls.length + ")" },
+    { id: "convergence", label: "Convergence (" + CONVERGENCE.length + ")" },
+    { id: "scf", label: "SCF (" + SCF_DOMAINS.length + ")" },
     { id: "archetypes", label: "Archetypes (" + ARCHETYPES.length + ")" },
-    { id: "frameworks", label: "Frameworks (" + frameworks.length + ")" },
+    { id: "frameworks", label: "Frameworks (" + allFrameworks.length + ")" },
   ];
-  const showFilter = tab === "risks" || tab === "controls";
+  const showFilter = tab === "risks" || tab === "controls" || tab === "archetypes" || tab === "convergence" || tab === "scf" || tab === "frameworks";
 
   return (
     <section style={{ paddingTop: 40, paddingBottom: 20 }}>
@@ -311,7 +729,7 @@ function LibraryBrowser({ onOpen }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
         <Segmented tabs={tabs} active={tab} onChange={(id) => { setTab(id); setQ(""); }} />
         {showFilter && (
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter…" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", color: C.ink, fontSize: 13, fontFamily: "'Inter', sans-serif", outline: "none", minWidth: 180 }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter…" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", color: C.ink, fontSize: 13, fontFamily: "'Inter', sans-serif", minWidth: 180 }} />
         )}
       </div>
 
@@ -321,14 +739,14 @@ function LibraryBrowser({ onOpen }) {
             <Card key={r.id} onClick={() => onOpen({ item: r, kind: "RISK" })}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                 <Mono style={{ fontSize: 11, color: C.inkFaint }}>{r.id}</Mono>
-                <Pill color={RATING_COLOR[r.inherent]} soft={`${RATING_COLOR[r.inherent]}1A`}><Dot color={RATING_COLOR[r.inherent]} />{r.inherent}</Pill>
+                <Pill color={RATING_COLOR[r.inherent]} soft={`${RATING_COLOR[r.inherent]}1A`}><SevIcon level={r.inherent} />{r.inherent}</Pill>
               </div>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.ink, margin: "7px 0 5px", lineHeight: 1.35 }}>{r.title}</div>
-              <Mono style={{ fontSize: 10.5, color: C.inkFaint }}>{r.domain + " · " + r.class + " · " + r.controls.length + " controls"}</Mono>
+              <Mono style={{ fontSize: 10.5, color: C.inkFaint }}>{r.domain + " · " + r.class + " · " + r.controls.length + " controls"}<span style={{ color: C.amber, marginLeft: 6 }}>→ drill in</span></Mono>
             </Card>
           ))}
         </div>
-      ) : <EmptyNote text={"No risks match “" + q + "” — try a different term."} />)}
+      ) : <EmptyNote text={`No risks match "${q}" — try a different term.`} />)}
 
       {tab === "controls" && (controls.length > 0 ? (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }} className="grid2">
@@ -340,10 +758,38 @@ function LibraryBrowser({ onOpen }) {
               </div>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.ink, margin: "7px 0 5px", lineHeight: 1.35 }}>{c.title}</div>
               <Mono style={{ fontSize: 10.5, color: C.inkFaint }}>{c.owner}</Mono>
+              {SCF_MAPPING[c.id] && (
+                <div style={{ marginTop: 7, display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                  <Mono style={{ fontSize: 10, color: C.inkFaint }}>SCF</Mono>
+                  {SCF_MAPPING[c.id].map((sid) => <Mono key={sid} style={{ fontSize: 10, color: C.amber }}>{sid}</Mono>)}
+                </div>
+              )}
             </Card>
           ))}
         </div>
-      ) : <EmptyNote text={"No controls match “" + q + "” — try a different term."} />)}
+      ) : <EmptyNote text={`No controls match "${q}" — try a different term.`} />)}
+
+      {tab === "convergence" && (convs.length > 0 ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }} className="grid2">
+          {convs.map((c) => (
+            <div key={c.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 18px", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                <Mono style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>{c.id}</Mono>
+                <span style={{ fontSize: 14, fontWeight: 600, color: C.ink, flex: 1 }}>{c.spineLabel}</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <CascadeFlow
+                  chain={c.chain}
+                  spineRisk={c.spineRisk}
+                  impactDomain={c.impactDomain}
+                  onRiskClick={() => { if (RISKS[c.spineRisk]) onOpen({ item: RISKS[c.spineRisk], kind: "RISK" }); }}
+                />
+              </div>
+              <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.5, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>{c.impact}</div>
+            </div>
+          ))}
+        </div>
+      ) : <EmptyNote text={`No convergence pathways match "${q}" — try a different term.`} />)}
 
       {tab === "archetypes" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -367,16 +813,122 @@ function LibraryBrowser({ onOpen }) {
         </div>
       )}
 
+      {tab === "scf" && (
+        <div>
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "16px 18px", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <Mono style={{ fontSize: 12, color: C.amber, fontWeight: 600 }}>SCF {SCF_VERSION}</Mono>
+              <span style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>Secure Controls Framework</span>
+            </div>
+            <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.5 }}>
+              {SCF_DOMAINS.reduce((s, d) => s + d.count, 0).toLocaleString()} controls across {SCF_DOMAINS.length} domains. Each curated control in this library is cross-referenced to its SCF equivalent — click any control to see the mapping.
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }} className="grid2">
+            {scfDomains.map((d) => {
+              const mappedScfIds = Object.values(SCF_MAPPING).flat().filter((sid) => sid.startsWith(d.id + "-") || sid.startsWith(d.id.toLowerCase() + "-"));
+              const mappedCount = mappedScfIds.length;
+              const isExpanded = expandedDomain === d.id;
+              const mappedCtls = mappedCount > 0 ? Object.entries(SCF_MAPPING).filter(([, sids]) => sids.some((sid) => sid.startsWith(d.id + "-") || sid.startsWith(d.id.toLowerCase() + "-"))).map(([ctlId, sids]) => ({ ctlId, scfIds: sids.filter((sid) => sid.startsWith(d.id + "-") || sid.startsWith(d.id.toLowerCase() + "-")) })) : [];
+              return (
+                <div key={d.id} style={{ background: C.panel, border: `1px solid ${isExpanded ? C.amber + "55" : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: mappedCount > 0 ? "pointer" : "default", transition: "border-color .15s" }}
+                  onClick={() => mappedCount > 0 && setExpandedDomain(isExpanded ? null : d.id)}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{d.name}</div>
+                      <Mono style={{ fontSize: 10.5, color: C.inkFaint, marginTop: 3, display: "block" }}>{d.id} · {d.count} controls</Mono>
+                    </div>
+                    {mappedCount > 0 && <Pill color={C.teal} soft={C.tealSoft}>{mappedCount} mapped {isExpanded ? "▾" : "▸"}</Pill>}
+                  </div>
+                  {isExpanded && mappedCtls.length > 0 && (
+                    <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}`, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {mappedCtls.map(({ ctlId, scfIds }) => {
+                        const ctl = CONTROLS[ctlId];
+                        return (
+                          <div key={ctlId} style={{ background: C.panelHi, borderRadius: 7, padding: "9px 11px", border: `1px solid ${C.line}` }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <ChipLink label={ctlId} onClick={() => onNavigate && onNavigate(ctlId, "CONTROL")} />
+                              <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{ctl ? ctl.title : ctlId}</span>
+                            </div>
+                            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
+                              {scfIds.map((sid) => {
+                                const s = SCF_CONTROLS[sid];
+                                return <Mono key={sid} style={{ fontSize: 10, color: C.amber }}>{sid}{s ? " — " + s.title : ""}</Mono>;
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {tab === "frameworks" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {fws.map((f) => (
-            <div key={f.name} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: "13px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: C.violet }}>{f.name}</span>
-                <Mono style={{ fontSize: 10.5, color: C.inkFaint }}>{f.ids.length + " risks mapped"}</Mono>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                {f.ids.filter((rid) => RISKS[rid]).map((rid) => <ChipLink key={rid} label={rid} onClick={() => onOpen({ item: RISKS[rid], kind: "RISK" })} />)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 18px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <Mono style={{ fontSize: 12, letterSpacing: "0.1em", color: C.violet }}>REFERENCE LIBRARY</Mono>
+              <Pill color={C.violet} soft={`${C.violet}1A`}>{allFrameworks.length} frameworks & regulations</Pill>
+            </div>
+            <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.55 }}>
+              Verified versions as of June 2026. Each entry carries paraphrased intent — never verbatim standard text. Click any entry for full detail, requirements, and the risks it governs.
+            </div>
+          </div>
+
+          {[{ label: "Control Frameworks", items: fwControlFrameworks.filter((f) => fws.includes(f)), color: C.violet },
+            { label: "Regulations", items: fwRegulations.filter((f) => fws.includes(f)), color: C.red }].map((group) => group.items.length > 0 && (
+            <div key={group.label}>
+              <Mono style={{ fontSize: 11, letterSpacing: "0.08em", color: group.color, marginBottom: 8, display: "block" }}>{group.label.toUpperCase()}</Mono>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }} className="grid2">
+                {group.items.map((fw) => {
+                  const reqs = FRAMEWORK_REQUIREMENTS[fw.id] || [];
+                  const isExpanded = expandedDomain === fw.id;
+                  return (
+                    <div key={fw.id} style={{ background: C.panel, border: `1px solid ${isExpanded ? C.violet + "66" : C.line}`, borderRadius: 11, padding: "14px 15px", cursor: "pointer", transition: "all .15s", gridColumn: isExpanded ? "1 / -1" : undefined }}
+                      onClick={() => setExpandedDomain(isExpanded ? null : fw.id)}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = C.panelHi; }} onMouseLeave={(e) => { e.currentTarget.style.background = C.panel; }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{fw.name}</span>
+                        <Pill color={group.color} soft={`${group.color}1A`}>{fw.version}</Pill>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.45, marginBottom: 6 }}>{fw.summary}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <Mono style={{ fontSize: 10, color: C.inkFaint }}>{fw.publisher} · {fw.date}</Mono>
+                        {reqs.length > 0 && <Mono style={{ fontSize: 10, color: C.violet }}>{reqs.length + " req" + (reqs.length === 1 ? "" : "s") + " cataloged"}</Mono>}
+                        <span style={{ fontSize: 11, color: C.amber, marginLeft: "auto" }}>{isExpanded ? "▾ collapse" : "→ expand"}</span>
+                      </div>
+                      {fw.note && <div style={{ fontSize: 11.5, color: C.inkFaint, fontStyle: "italic", marginTop: 6, lineHeight: 1.4 }}>{fw.note}</div>}
+                      {isExpanded && reqs.length > 0 && (
+                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}`, display: "flex", flexDirection: "column", gap: 6 }}>
+                          {reqs.map((req) => {
+                            const mappedCtls = (REQUIREMENT_CONTROLS[fw.id] || {})[req.ref] || [];
+                            return (
+                            <div key={req.ref} style={{ background: C.panelHi, borderRadius: 6, padding: "8px 10px", border: `1px solid ${C.line}` }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                                <Mono style={{ fontSize: 10.5, color: C.violet, fontWeight: 600 }}>{req.ref}</Mono>
+                                <span style={{ fontSize: 10.5, color: C.inkFaint }}>{req.group}</span>
+                              </div>
+                              <div style={{ fontSize: 12, color: C.ink, fontWeight: 500 }}>{req.title}</div>
+                              <div style={{ fontSize: 11, color: C.inkDim, marginTop: 2, lineHeight: 1.4 }}>{req.intent}</div>
+                              {mappedCtls.length > 0 && (
+                                <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                                  <span style={{ fontSize: 10, color: C.inkFaint, alignSelf: "center" }}>Satisfied by</span>
+                                  {mappedCtls.map((cid) => <ChipLink key={cid} label={cid} color={C.teal} onClick={() => onNavigate && onNavigate(cid, "CONTROL")} />)}
+                                </div>
+                              )}
+                            </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -399,6 +951,22 @@ export default function App() {
 
   const assessment = useMemo(() => submitted ? buildAssessment(submitted) : null, [submitted]);
 
+  const navigateTo = (id, kind) => {
+    if (kind === "RISK") {
+      const r = RISKS[id];
+      if (r) {
+        const mapped = r.controls.map((cid) => CONTROLS[cid]).filter(Boolean);
+        setDrawer({ item: { ...r, residual: computeResidual(r.inherent, mapped) }, kind: "RISK" });
+      }
+    } else if (kind === "CONTROL") {
+      const c = CONTROLS[id];
+      if (c) setDrawer({ item: { ...c, procedures: CONTROL_PROCEDURES[id] || null }, kind: "CONTROL" });
+    } else if (kind === "FRAMEWORK") {
+      const fw = FRAMEWORKS[id];
+      if (fw) setDrawer({ item: fw, kind: "FRAMEWORK" });
+    }
+  };
+
   const run = (text) => {
     const t = text === undefined ? input : text;
     if (!t.trim()) return;
@@ -420,7 +988,8 @@ export default function App() {
     }
     setAiState("loading");
     const riskList = assessment.risks.map((r) => r.id + ": " + r.title).join("\n");
-    const prompt = "You are a senior GRC architect reviewing a draft assessment. The initiative is:\n\n\"" + submitted + "\"\n\nA baseline assessment from our curated control library already identified these risks:\n" + riskList + "\n\nYour job is NOT to repeat them. Identify up to 3 initiative-SPECIFIC considerations the generic baseline would miss. For each, give a one-sentence watch and a one-sentence why. Return ONLY a JSON array, no markdown:\n[{\"watch\":\"...\",\"why\":\"...\"}]";
+    const controlList = assessment.controls.map((c) => c.control.id + ": " + c.control.title + " (" + c.control.type + ")").join("\n");
+    const prompt = "You are a senior GRC architect reviewing a draft assessment. The initiative is:\n\n\"" + submitted + "\"\n\nA baseline assessment from our curated control library already identified these risks:\n" + riskList + "\n\nWith these controls mapped:\n" + controlList + "\n\nYour job is NOT to repeat them. Identify up to 3 initiative-SPECIFIC considerations the generic baseline would miss. For each, give a one-sentence watch and a one-sentence why. Return ONLY a JSON array, no markdown:\n[{\"watch\":\"...\",\"why\":\"...\"}]";
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -432,9 +1001,13 @@ export default function App() {
         },
         body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: prompt }] }),
       });
+      if (!res.ok) { setAiState("error"); return; }
       const data = await res.json();
-      const text = data.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) { setAiState("error"); return; }
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(parsed)) { setAiState("error"); return; }
       setAiNotes(parsed);
       setAiState("done");
     } catch (e) {
@@ -455,7 +1028,9 @@ export default function App() {
 
     let controlRows = "";
     assessment.controls.forEach((c) => {
-      controlRows += "<tr><td class='mono'>" + esc(c.control.id) + "</td><td><strong>" + esc(c.control.title) + "</strong> <span class='pill'>" + c.control.type + "</span><br><span class='dim'>" + esc(c.control.statement) + "</span></td><td>" + esc(c.control.owner) + "</td><td class='mono dim'>" + c.addresses.map(esc).join(", ") + "</td></tr>";
+      const scfIds = SCF_MAPPING[c.control.id];
+      const scfCell = scfIds ? scfIds.map((sid) => { const s = SCF_CONTROLS[sid]; return s ? "<span title='" + esc(s.title) + "'>" + esc(sid) + "</span>" : esc(sid); }).join(", ") : "<span class='dim'>—</span>";
+      controlRows += "<tr><td class='mono'>" + esc(c.control.id) + "</td><td><strong>" + esc(c.control.title) + "</strong> <span class='pill'>" + c.control.type + "</span><br><span class='dim'>" + esc(c.control.statement) + "</span></td><td>" + esc(c.control.owner) + "</td><td class='mono dim'>" + c.addresses.map(esc).join(", ") + "</td><td class='mono'>" + scfCell + "</td></tr>";
     });
 
     let checklist = "";
@@ -470,9 +1045,28 @@ export default function App() {
     let testRows = "";
     assessment.controls.forEach((c) => {
       if (c.procedures && c.procedures.testing) {
-        testRows += "<tr><td class='mono'>" + esc(c.control.id) + "</td><td>" + esc(c.procedures.testing) + "</td><td class='dim'>" + esc(c.control.evidence) + "</td></tr>";
+        const audit = CONTROL_AUDIT[c.control.id];
+        let extra = "";
+        if (audit) {
+          extra = "<div class='small' style='margin-top:7px'><span class='accent'>Auditor will ask:</span><ul style='margin:3px 0 6px'>" + audit.questions.map((q) => "<li>" + esc(q) + "</li>").join("") + "</ul><span class='accent'>Common findings:</span><ul style='margin:3px 0 0'>" + audit.findings.map((f) => "<li>" + esc(f) + "</li>").join("") + "</ul></div>";
+        }
+        testRows += "<tr><td class='mono'>" + esc(c.control.id) + "</td><td>" + esc(c.procedures.testing) + extra + "</td><td class='dim'>" + esc(c.control.evidence) + "</td></tr>";
       }
     });
+
+    const rec = assessment.recommendation;
+    const recColor = rec.tone === "red" ? rc.Critical : rec.tone === "amber" ? rc.High : rc.Medium;
+    const topRisksList = assessment.topRisks.map((r) => "<li><span class='mono'>" + esc(r.id) + "</span> — " + esc(r.title) + "</li>").join("");
+    const topCtlList = assessment.topControls.map((c) => "<li><span class='mono'>" + esc(c.control.id) + "</span> — " + esc(c.control.title) + "</li>").join("");
+    const execBlock = "<h2>Executive Recommendation</h2>" +
+      "<div class='block' style='border-left-color:" + recColor + "'><strong style='color:" + recColor + "'>" + esc(rec.decision.toUpperCase()) + "</strong> &nbsp;·&nbsp; BIA overall: <span class='tag' style='color:" + rc[assessment.biaOverall] + ";border-color:" + rc[assessment.biaOverall] + "'>" + esc(assessment.biaOverall) + "</span><div class='dim' style='margin-top:6px'>" + esc(rec.rationale) + "</div></div>" +
+      "<div style='display:flex;gap:32px;flex-wrap:wrap'><div><div class='mono accent small'>TOP RISKS</div><ul>" + topRisksList + "</ul></div><div><div class='mono accent small'>TOP RECOMMENDATIONS</div><ul>" + topCtlList + "</ul></div></div>";
+
+    const biaRows = assessment.bia.map((d) => "<tr><td><strong>" + esc(d.label) + "</strong></td><td><span class='tag' style='color:" + rc[d.rating] + ";border-color:" + rc[d.rating] + "'>" + esc(d.rating) + "</span></td><td class='dim'>" + esc(d.note) + "</td></tr>").join("");
+    const biaBlock = "<h2>Business Impact Analysis</h2><table><thead><tr><th>Dimension</th><th>Impact</th><th>Rationale</th></tr></thead><tbody>" + biaRows + "</tbody></table>";
+
+    const matRows = assessment.maturity.map((m) => "<tr><td><strong>" + esc(m.domain) + "</strong></td><td class='mono'>L" + m.current + " " + esc(MATURITY_LEVELS[m.current - 1].label) + "</td><td class='mono'>L" + m.target + " " + esc(MATURITY_LEVELS[m.target - 1].label) + "</td><td class='dim'>" + esc(m.targetNote) + "</td></tr>").join("");
+    const maturityBlock = assessment.maturity.length ? "<h2>Maturity Model</h2><p class='dim small'>Current state is a baseline assumption for a new or un-governed initiative; target is the capability the control set is designed to reach.</p><table><thead><tr><th>Domain</th><th>Current*</th><th>Target</th><th>Target state</th></tr></thead><tbody>" + matRows + "</tbody></table>" : "";
 
     let aiBlock = "";
     if (aiState === "done" && aiNotes && aiNotes.length) {
@@ -493,23 +1087,46 @@ export default function App() {
         inner += "<h3 style='font-size:13px;margin:18px 0 6px;color:#1a2530'>" + esc(t.label) + " <span class='dim small' style='font-weight:normal'>" + esc(t.blurb) + "</span></h3>";
         inner += "<table><thead><tr><th>Document</th><th>Backs</th></tr></thead><tbody>" + rows + "</tbody></table>";
       });
-      docsBlock = "<h2>Recommended Governance Documents</h2><p class='dim small'>Recommended document set, not authored content. The writing remains the practitioner's, in the organization's own voice and approval path.</p>" + inner;
+      docsBlock = "<h2>Recommended Governance Documents (" + assessment.docCount + ")</h2><p class='dim small'>Recommended document set, not authored content. The writing remains the practitioner's, in the organization's own voice and approval path.</p>" + inner;
     }
 
     const css = "@media print{@page{margin:18mm}}body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1a2530;max-width:880px;margin:0 auto;padding:32px 28px;line-height:1.5}h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 10px;border-bottom:2px solid #1a2530;padding-bottom:5px}.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}.dim{color:#5a6b78}.small{font-size:12px}.accent{color:#B5790F;font-weight:600}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}th{text-align:left;background:#f1f4f6;padding:7px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#4a5a66;border-bottom:2px solid #d5dde2}td{padding:8px 9px;border-bottom:1px solid #e3e9ed;vertical-align:top}.tag{display:inline-block;font-family:ui-monospace,monospace;font-size:11px;font-weight:600;padding:2px 8px;border:1px solid;border-radius:4px}.pill{display:inline-block;font-size:10px;padding:1px 6px;background:#eef2f4;border-radius:3px;color:#566573}.block{margin:8px 0;padding:10px 12px;background:#f7f9fa;border-left:3px solid #B5790F;border-radius:4px}.block ol{margin:6px 0 0;padding-left:20px}.block li{margin-bottom:3px}.meta{display:flex;gap:24px;flex-wrap:wrap;margin:14px 0 6px;font-size:13px}.meta b{font-size:20px;font-family:ui-monospace,monospace}.banner{background:#fdf6e9;border:1px solid #e8cf9a;border-radius:6px;padding:12px 14px;font-size:12.5px;color:#6b5320;margin-top:26px}.head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;border-bottom:3px solid #1a2530;padding-bottom:12px}";
 
     const archetypeLabels = assessment.archetypes.map((a) => esc(a.label)).join(", ");
-    const frameworkList = assessment.frameworks.map(esc).join(" - ");
+    const frameworkList = assessment.frameworks.map((fw) => esc(fw.name) + " " + esc(fw.version)).join(" · ");
+
+    const scopeBlock = assessment.frameworkIds.filter((fid) => assessment.frameworkScope[fid]).map((fid) => {
+      const fw = FRAMEWORKS[fid];
+      const scope = assessment.frameworkScope[fid];
+      const cat = FRAMEWORK_REQUIREMENTS[fid] || [];
+      const idx = (r) => { const i = cat.findIndex((x) => x.ref === r); return i === -1 ? 999 : i; };
+      const highlighted = fid === "SOX-ITGC" || fid === "PCI-DSS";
+      const rows = Object.keys(scope).sort((a, b) => idx(a) - idx(b)).map((ref) => {
+        const reqMeta = cat.find((r) => r.ref === ref);
+        return "<tr><td class='mono'>" + esc(ref) + "</td><td>" + (reqMeta ? "<strong>" + esc(reqMeta.title) + "</strong><br><span class='dim'>" + esc(reqMeta.intent) + "</span>" : "") + "</td><td class='mono'>" + scope[ref].controlIds.map(esc).join(", ") + "</td></tr>";
+      }).join("");
+      return "<h3>" + esc(fw.name) + " <span class='pill'>" + esc(fw.version) + "</span>" + (highlighted ? " <span class='tag' style='color:#B5790F;border-color:#B5790F'>Highlighted</span>" : "") + "</h3><table><thead><tr><th>Requirement</th><th>Objective</th><th>Controls</th></tr></thead><tbody>" + rows + "</tbody></table>";
+    }).join("");
+    const frameworkScopeBlock = scopeBlock ? "<h2>Framework Scope &amp; Control Crosswalk</h2><p class='dim small'>Requirement-level mapping to the controls that satisfy them. SOX ITGC and PCI DSS 4.0.1 highlighted.</p>" + scopeBlock : "";
+
+    const fwRefRows = assessment.frameworks.map((fw) => "<tr><td><strong>" + esc(fw.name) + "</strong></td><td class='mono'>" + esc(fw.version) + "</td><td>" + esc(fw.publisher) + "</td><td class='dim'>" + esc(fw.date || "") + "</td></tr>").join("");
+    const fwRefBlock = "<h2>Framework Reference</h2><table><thead><tr><th>Framework</th><th>Version</th><th>Publisher</th><th>Date</th></tr></thead><tbody>" + fwRefRows + "</tbody></table>";
 
     const html = "<!doctype html><html><head><meta charset='utf-8'><title>GRC Assessment Summary</title><style>" + css + "</style></head><body>" +
       "<div class='head'><div><h1>Governance Assessment</h1><div class='dim small'>Executive Summary - Generated " + esc(date) + "</div></div><div class='mono dim'>Knowledge Library v" + esc(LIBRARY_VERSION) + "</div></div>" +
       "<h2>Initiative</h2><p>" + esc(submitted) + "</p><p class='small dim'>Classified as: " + archetypeLabels + "</p>" +
       "<div class='meta'><div><b>" + assessment.risks.length + "</b><br><span class='dim small'>Risks</span></div><div><b>" + assessment.controls.length + "</b><br><span class='dim small'>Controls</span></div><div><b>" + assessment.inherentHC + "</b><br><span class='dim small'>High/Critical inherent</span></div><div><b>" + assessment.residualHC + "</b><br><span class='dim small'>High/Critical residual*</span></div></div>" +
+      execBlock +
+      biaBlock +
       "<h2>Risk Register</h2><table><thead><tr><th>ID</th><th>Risk</th><th>Inherent</th><th>Residual*</th></tr></thead><tbody>" + riskRows + "</tbody></table>" +
-      "<h2>Control Matrix</h2><table><thead><tr><th>ID</th><th>Control</th><th>Owner</th><th>Addresses</th></tr></thead><tbody>" + controlRows + "</tbody></table>" +
+      "<h2>Control Matrix</h2><table><thead><tr><th>ID</th><th>Control</th><th>Owner</th><th>Addresses</th><th>SCF " + esc(SCF_VERSION) + "</th></tr></thead><tbody>" + controlRows + "</tbody></table>" +
       "<h2>Implementation Checklist</h2>" + checklist +
-      "<h2>Audit Testing Procedures</h2><table><thead><tr><th>Control</th><th>Test Procedure</th><th>Evidence</th></tr></thead><tbody>" + testRows + "</tbody></table>" +
-      "<h2>Frameworks Implicated</h2><p>" + frameworkList + "</p>" + docsBlock + aiBlock +
+      "<h2>Audit Readiness</h2><table><thead><tr><th>Control</th><th>Test Procedure · Auditor Questions · Common Findings</th><th>Evidence</th></tr></thead><tbody>" + testRows + "</tbody></table>" +
+      "<h2>Frameworks Implicated</h2><p>" + frameworkList + "</p>" +
+      frameworkScopeBlock +
+      fwRefBlock +
+      (assessment.convergence.length > 0 ? "<h2>Convergence Pathways (" + assessment.convergence.length + ")</h2><p class='dim small'>Where GRC-owned spine failures cascade into domains owned by other functions. GRC prevents or detects the spine failure; the downstream domain owns the converged risk.</p><table><thead><tr><th>ID</th><th>Spine Failure</th><th>Cascade</th><th>Impact Domain</th></tr></thead><tbody>" + assessment.convergence.map((c) => "<tr><td class='mono'>" + esc(c.id) + "</td><td><strong>" + esc(c.spineLabel) + "</strong> <span class='mono dim'>(" + esc(c.spineRisk) + ")</span><br><span class='dim'>" + esc(c.impact) + "</span></td><td class='dim'>" + c.chain.map(esc).join(" → ") + "</td><td><span class='tag' style='color:#C0392B;border-color:#C0392B'>" + esc(c.impactDomain) + "</span></td></tr>").join("") + "</tbody></table>" : "") +
+      maturityBlock + docsBlock + aiBlock +
       "<div class='banner'><strong>* Target residual.</strong> Residual assumes recommended controls are implemented and operating effectively - not current-state. This is a decision-support draft, not a professional opinion, audit opinion, QSA assessment, or legal advice. A qualified practitioner must review, tailor, and own the result.</div>" +
       "</body></html>";
 
@@ -523,25 +1140,37 @@ export default function App() {
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     setExported(true);
-    setTimeout(() => setExported(false), 2200);
+    setTimeout(() => setExported(false), 3500);
   };
+
+  // Running section number — keeps numbering contiguous across conditional sections.
+  // Single source of truth for which sections render, in order — drives both the
+  // section numbering and the sticky jump-nav (Gap 3), so they can never drift.
+  const scopedCount = assessment ? assessment.frameworkIds.filter((fid) => assessment.frameworkScope[fid]).length : 0;
+  const navSections = assessment ? [
+    { id: "exec", title: "Executive Recommendation" },
+    { id: "bia", title: "Business Impact Analysis" },
+    { id: "risks", title: "Risk Register" },
+    { id: "controls", title: "Control Matrix" },
+    { id: "checklist", title: "Implementation Checklist" },
+    { id: "audit", title: "Audit Readiness" },
+    { id: "frameworks", title: "Frameworks Implicated" },
+    ...(scopedCount > 0 ? [{ id: "scope", title: "Framework Scope & Crosswalk" }] : []),
+    ...(assessment.convergence.length > 0 ? [{ id: "convergence", title: "Convergence Pathways" }] : []),
+    ...(assessment.maturity.length > 0 ? [{ id: "maturity", title: "Maturity Model" }] : []),
+    { id: "docs", title: "Governance Documents" },
+    { id: "ai", title: "Initiative-Specific Review" },
+  ] : [];
+  const secNumOf = (id) => String(Math.max(0, navSections.findIndex((s) => s.id === id)) + 1).padStart(2, "0");
+  const SCROLL_MT = 118;
 
   return (
     <div style={{ minHeight: "100vh", background: C.canvas, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", backgroundImage: `radial-gradient(circle at 18% 0%, ${C.panel} 0%, ${C.canvas} 42%)` }}>
-      <style>{`
-        * { box-sizing: border-box; }
-        ::selection { background: ${C.amber}; color: #1a1206; }
-        textarea::placeholder { color: ${C.inkFaint}; }
-        @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr !important; } }
-      `}</style>
-
-      <SourceDrawer item={drawer ? drawer.item : null} kind={drawer ? drawer.kind : null} onClose={() => setDrawer(null)} />
+      <SourceDrawer item={drawer ? drawer.item : null} kind={drawer ? drawer.kind : null} onClose={() => setDrawer(null)} onNavigate={navigateTo} />
 
       <header style={{ borderBottom: `1px solid ${C.line}`, padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: `${C.canvas}E8`, backdropFilter: "blur(10px)", zIndex: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-          <div style={{ width: 26, height: 26, borderRadius: 6, background: `linear-gradient(135deg, ${C.amber}, ${C.red})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 14, color: "#1a1206" }}>G</span>
-          </div>
+          <BrandMark size={26} />
           <div style={{ fontWeight: 600, fontSize: 15, letterSpacing: "-0.01em" }}>GRC Intelligence Engine</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -571,10 +1200,10 @@ export default function App() {
             Backed by a curated control library — every risk and control traces to an inspectable source. Built to accelerate a practitioner's judgment, not replace it.
           </p>
           <div style={{ marginTop: 30, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 18 }}>
-            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }} placeholder="e.g. We are implementing a new third-party SaaS platform that stores customer payment information and integrates with our ERP…" rows={3} style={{ width: "100%", background: "transparent", border: "none", outline: "none", resize: "vertical", color: C.ink, fontSize: 15.5, lineHeight: 1.55, fontFamily: "'Inter', sans-serif", minHeight: 70 }} />
+            <textarea aria-label="Describe the technology initiative to assess" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }} placeholder="e.g. We are implementing a new third-party SaaS platform that stores customer payment information and integrates with our ERP…" rows={3} style={{ width: "100%", background: "transparent", border: "none", outlineOffset: 4, resize: "vertical", color: C.ink, fontSize: 15.5, lineHeight: 1.55, fontFamily: "'Inter', sans-serif", minHeight: 70 }} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 12 }}>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                {SAMPLES.slice(0, 3).map((s, i) => (
+                {SAMPLES.map((s, i) => (
                   <button key={i} onClick={() => { setInput(s); run(s); }} style={{ background: C.panelHi, border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>
                     {s.length > 42 ? s.slice(0, 42) + "…" : s}
                   </button>
@@ -587,10 +1216,19 @@ export default function App() {
           </div>
         </section>
 
+        {!submitted && <HowItWorks onExploreLibrary={() => setView("library")} />}
+
         <div ref={resultRef}>
           {submitted && !assessment && (
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 28, marginTop: 16, textAlign: "center" }}>
-              <p style={{ color: C.inkDim, margin: 0, lineHeight: 1.6 }}>The engine couldn't match this to a known system pattern yet. Try naming the system type, the data it handles, or a vendor — e.g. "payment processing," "AI chatbot," "ERP," "data warehouse."</p>
+              <p style={{ color: C.inkDim, margin: "0 0 16px", lineHeight: 1.6 }}>The engine couldn't match this to a known system pattern yet. Try naming the system type, the data it handles, or a vendor. Here are some examples:</p>
+              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "center" }}>
+                {SAMPLES.slice(0, 4).map((s, i) => (
+                  <button key={i} onClick={() => { setInput(s); run(s); }} style={{ background: C.panelHi, border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>
+                    {s.length > 50 ? s.slice(0, 50) + "…" : s}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -623,30 +1261,98 @@ export default function App() {
                 </div>
               )}
 
+              <div style={{ background: `${C.teal}0F`, border: `1px solid ${C.teal}40`, borderRadius: 12, padding: "13px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.5, flex: 1, minWidth: 260 }}>
+                  <span style={{ color: C.teal, fontWeight: 600 }}>This package is fully inspectable.</span> Click any <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.ink, border: `1px solid ${C.teal}44`, background: `${C.teal}10`, borderRadius: 4, padding: "1px 5px" }}>ID&#8202;↗</span> — risk, control, or framework — to open its sourced entry. Assembled from a curated library of {Object.keys(RISKS).length} risks · {Object.keys(CONTROLS).length} controls · {Object.keys(FRAMEWORKS).length} frameworks.
+                </div>
+                <button onClick={() => setView("library")} style={{ background: C.canvas, border: `1px solid ${C.teal}66`, color: C.teal, borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>Explore Library →</button>
+              </div>
+
+              <Legend />
+
+              <SectionNav sections={navSections} />
+
+              <div id="sec-exec" style={{ marginBottom: 28, scrollMarginTop: SCROLL_MT }}>
+                <SectionLabel n={secNumOf("exec")} title="Executive Recommendation" hint="Go / No-Go from the target residual posture" />
+                {(() => {
+                  const tone = assessment.recommendation.tone === "red" ? C.red : assessment.recommendation.tone === "amber" ? C.amber : C.teal;
+                  return (
+                    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderLeft: `3px solid ${tone}`, borderRadius: 12, padding: "18px 20px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700, letterSpacing: "0.04em", color: tone, background: `${tone}1A`, border: `1px solid ${tone}55`, borderRadius: 6, padding: "6px 12px" }}>{assessment.recommendation.decision.toUpperCase()}</span>
+                        <span style={{ fontSize: 13, color: C.inkDim, display: "inline-flex", alignItems: "center", gap: 7 }}>BIA overall <Pill color={RATING_COLOR[assessment.biaOverall]} soft={`${RATING_COLOR[assessment.biaOverall]}1A`}>{assessment.biaOverall}</Pill></span>
+                      </div>
+                      <div style={{ fontSize: 13.5, color: C.inkDim, lineHeight: 1.55, marginBottom: 16 }}>{assessment.recommendation.rationale}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }} className="grid2">
+                        <div>
+                          <Mono style={{ fontSize: 10, color: C.inkFaint, letterSpacing: "0.08em" }}>TOP RISKS</Mono>
+                          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 7 }}>
+                            {assessment.topRisks.map((r) => (
+                              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <ChipLink label={r.id} color={RATING_COLOR[r.inherent]} onClick={() => navigateTo(r.id, "RISK")} />
+                                <span style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.4 }}>{r.title}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <Mono style={{ fontSize: 10, color: C.inkFaint, letterSpacing: "0.08em" }}>TOP RECOMMENDATIONS</Mono>
+                          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 7 }}>
+                            {assessment.topControls.map((c) => (
+                              <div key={c.control.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <ChipLink label={c.control.id} color={C.teal} onClick={() => navigateTo(c.control.id, "CONTROL")} />
+                                <span style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.4 }}>{c.control.title}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div id="sec-bia" style={{ marginBottom: 28, scrollMarginTop: SCROLL_MT }}>
+                <SectionLabel n={secNumOf("bia")} title="Business Impact Analysis" hint={"Worst-case impact across six dimensions · overall " + assessment.biaOverall} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {assessment.bia.map((d) => (
+                    <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 14, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 15px", flexWrap: "wrap" }}>
+                      <div style={{ width: 104, flexShrink: 0, fontSize: 13.5, fontWeight: 600, color: C.ink }}>{d.label}</div>
+                      <div style={{ width: 86, flexShrink: 0 }}><Pill color={RATING_COLOR[d.rating]} soft={`${RATING_COLOR[d.rating]}1A`}><SevIcon level={d.rating} />{d.rating}</Pill></div>
+                      <div style={{ flex: 1, minWidth: 200, fontSize: 12.5, color: C.inkDim, lineHeight: 1.45 }}>{d.note}</div>
+                    </div>
+                  ))}
+                </div>
+                <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 10, display: "block" }}>Worst case across the matched system patterns. Each dimension is rated independently; the overall is the highest.</Mono>
+              </div>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }} className="grid2">
-                <div>
-                  <SectionLabel n="01" title="Risk Register" hint="Inherent and target residual" />
+                <div id="sec-risks" style={{ scrollMarginTop: SCROLL_MT }}>
+                  <SectionLabel n={secNumOf("risks")} title="Risk Register" hint="Inherent and target residual" />
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {assessment.risks.map((r) => (
                       <Card key={r.id} onClick={() => setDrawer({ item: r, kind: "RISK" })}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                          <Mono style={{ fontSize: 11, color: C.inkFaint }}>{r.id}</Mono>
+                          <Mono style={{ fontSize: 11, color: C.inkFaint, fontVariantNumeric: "tabular-nums" }}>{r.id}</Mono>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <Pill color={RATING_COLOR[r.inherent]} soft={`${RATING_COLOR[r.inherent]}1A`}>{r.inherent}</Pill>
-                            <span style={{ color: C.inkFaint, fontSize: 12 }}>{"→"}</span>
-                            <Pill color={RATING_COLOR[r.residual.residual]} soft={`${RATING_COLOR[r.residual.residual]}1A`}><Dot color={RATING_COLOR[r.residual.residual]} />{r.residual.residual}</Pill>
+                            <Pill color={RATING_COLOR[r.inherent]} soft={`${RATING_COLOR[r.inherent]}1A`}><SevIcon level={r.inherent} />{r.inherent}</Pill>
+                            <span aria-hidden="true" style={{ color: C.inkFaint, fontSize: 12 }}>{"→"}</span>
+                            <Pill color={RATING_COLOR[r.residual.residual]} soft={`${RATING_COLOR[r.residual.residual]}1A`}><SevIcon level={r.residual.residual} />{r.residual.residual}</Pill>
                           </div>
                         </div>
                         <div style={{ fontSize: 14.5, fontWeight: 600, color: C.ink, margin: "7px 0 5px", lineHeight: 1.35 }}>{r.title}</div>
-                        <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.5 }}>{r.statement}</div>
-                        <Mono style={{ marginTop: 9, fontSize: 10.5, color: C.inkFaint, display: "block" }}>{r.domain + " · " + r.controls.length + " controls · " + (r.residual.levels > 0 ? "down " + r.residual.levels : "no reduction") + " · inspect"}</Mono>
+                        <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{r.statement}</div>
+                        <div style={{ marginTop: 10, paddingTop: 9, borderTop: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                          <Mono style={{ fontSize: 10.5, color: C.inkFaint, fontVariantNumeric: "tabular-nums" }}>{r.domain + " · " + r.controls.length + " controls · " + (r.residual.levels > 0 ? "↓ " + r.residual.levels + " level" + (r.residual.levels > 1 ? "s" : "") : "no reduction")}</Mono>
+                          <span className="drill-affordance" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 600, color: C.inkDim, whiteSpace: "nowrap", flexShrink: 0 }}>Inspect<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}><path d="M9 18l6-6-6-6" /></svg></span>
+                        </div>
                       </Card>
                     ))}
                   </div>
                 </div>
 
-                <div>
-                  <SectionLabel n="02" title="Control Matrix" hint="Mapped to the risks they address" />
+                <div id="sec-controls" style={{ scrollMarginTop: SCROLL_MT }}>
+                  <SectionLabel n={secNumOf("controls")} title="Control Matrix" hint="Mapped to the risks they address" />
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {assessment.controls.map((c) => (
                       <Card key={c.control.id} onClick={() => setDrawer({ item: { ...c.control, procedures: c.procedures }, kind: "CONTROL" })}>
@@ -656,23 +1362,29 @@ export default function App() {
                         </div>
                         <div style={{ fontSize: 14.5, fontWeight: 600, color: C.ink, margin: "7px 0 5px", lineHeight: 1.35 }}>{c.control.title}</div>
                         <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.5 }}>{c.control.statement}</div>
-                        <div style={{ marginTop: 9, display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                        <div style={{ marginTop: 9, display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
                           <Mono style={{ fontSize: 10, color: C.inkFaint }}>ADDRESSES</Mono>
-                          {c.addresses.map((a) => <Mono key={a} style={{ fontSize: 10, color: C.teal }}>{a}</Mono>)}
+                          {c.addresses.map((a) => <ChipLink key={a} label={a} onClick={() => navigateTo(a, "RISK")} />)}
                         </div>
+                        {SCF_MAPPING[c.control.id] && (
+                          <div style={{ marginTop: 6, display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                            <Mono style={{ fontSize: 10, color: C.inkFaint }}>SCF</Mono>
+                            {SCF_MAPPING[c.control.id].map((sid) => <Mono key={sid} style={{ fontSize: 10, color: C.amber }}>{sid}</Mono>)}
+                          </div>
+                        )}
                       </Card>
                     ))}
                   </div>
                 </div>
               </div>
 
-              <div style={{ marginTop: 28 }}>
-                <SectionLabel n="03" title="Implementation Checklist" hint="Steps to stand up each recommended control" />
+              <div id="sec-checklist" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
+                <SectionLabel n={secNumOf("checklist")} title="Implementation Checklist" hint="Steps to stand up each recommended control" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {assessment.controls.filter((c) => c.procedures && c.procedures.implementation).map((c) => (
                     <div key={c.control.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "14px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9, flexWrap: "wrap" }}>
-                        <Mono style={{ fontSize: 11, color: C.teal }}>{c.control.id}</Mono>
+                        <ChipLink label={c.control.id} onClick={() => navigateTo(c.control.id, "CONTROL")} />
                         <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{c.control.title}</span>
                         <Pill color={TYPE_COLOR[c.control.type]} soft={`${TYPE_COLOR[c.control.type]}1A`}>{c.control.type}</Pill>
                       </div>
@@ -690,30 +1402,172 @@ export default function App() {
                 <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 10, display: "block" }}>Checkboxes are visual — this preview doesn't persist state. The exported summary captures the full checklist.</Mono>
               </div>
 
-              <div style={{ marginTop: 28 }}>
-                <SectionLabel n="04" title="Audit Testing Procedures" hint="How each control would be tested for evidence" />
+              <div id="sec-audit" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
+                <SectionLabel n={secNumOf("audit")} title="Audit Readiness" hint="Test procedure, the questions an auditor will ask, and the findings that surface when it's weak" />
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {assessment.controls.filter((c) => c.procedures && c.procedures.testing).map((c) => (
+                  {assessment.controls.filter((c) => c.procedures && c.procedures.testing).map((c) => {
+                    const audit = CONTROL_AUDIT[c.control.id];
+                    return (
                     <div key={c.control.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: "13px 15px" }}>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 9, marginBottom: 5, flexWrap: "wrap" }}>
-                        <Mono style={{ fontSize: 11, color: C.violet }}>{c.control.id}</Mono>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 9, marginBottom: 7, flexWrap: "wrap" }}>
+                        <ChipLink label={c.control.id} color={C.violet} onClick={() => navigateTo(c.control.id, "CONTROL")} />
                         <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{c.control.title}</span>
                       </div>
-                      <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.5 }}>{c.procedures.testing}</div>
+                      <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
+                        <Mono style={{ fontSize: 9.5, color: C.inkFaint, letterSpacing: "0.06em", flexShrink: 0, width: 40 }}>TEST</Mono>
+                        <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.5 }}>{c.procedures.testing}</div>
+                      </div>
+                      {audit && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}`, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }} className="grid2">
+                          <div>
+                            <Mono style={{ fontSize: 9.5, color: C.violet, letterSpacing: "0.06em" }}>AUDITOR WILL ASK</Mono>
+                            <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+                              {audit.questions.map((q, i) => <li key={i} style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.45, marginBottom: 3 }}>{q}</li>)}
+                            </ul>
+                          </div>
+                          <div>
+                            <Mono style={{ fontSize: 9.5, color: C.amber, letterSpacing: "0.06em" }}>COMMON FINDINGS</Mono>
+                            <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+                              {audit.findings.map((f, i) => <li key={i} style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.45, marginBottom: 3 }}>{f}</li>)}
+                            </ul>
+                          </div>
+                        </div>
+                      )}
                     </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div id="sec-frameworks" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
+                <SectionLabel n={secNumOf("frameworks")} title="Frameworks Implicated" hint={"Where this initiative creates obligations · " + assessment.frameworks.length + " in scope"} />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {assessment.frameworks.map((fw) => (
+                    <ChipLink key={fw.id} label={fw.name + " " + fw.version} color={fw.kind === "regulation" ? C.red : C.violet} onClick={() => navigateTo(fw.id, "FRAMEWORK")} />
                   ))}
                 </div>
               </div>
 
-              <div style={{ marginTop: 28 }}>
-                <SectionLabel n="05" title="Frameworks Implicated" hint="Where this initiative creates obligations" />
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {assessment.frameworks.map((f) => <span key={f} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, color: C.violet, background: `${C.violet}14`, border: `1px solid ${C.violet}33`, padding: "7px 13px", borderRadius: 7 }}>{f}</span>)}
+              {assessment.frameworkIds.filter((fid) => assessment.frameworkScope[fid]).length > 0 && (() => {
+                const scopedIds = assessment.frameworkIds.filter((fid) => assessment.frameworkScope[fid]);
+                const totalReqs = scopedIds.reduce((n, fid) => n + Object.keys(assessment.frameworkScope[fid]).length, 0);
+                return (
+                <div id="sec-scope" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
+                  <SectionLabel n={secNumOf("scope")} title="Framework Scope & Control Crosswalk" hint={"Requirement-level mapping to the controls that satisfy them · SOX ITGC and PCI DSS 4.0.1 highlighted · " + totalReqs + " requirements across " + scopedIds.length + " frameworks"} />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }} className="grid2">
+                    {scopedIds.map((fid) => {
+                      const fw = FRAMEWORKS[fid];
+                      const highlighted = fid === "SOX-ITGC" || fid === "PCI-DSS";
+                      const accent = fw.kind === "regulation" ? C.red : C.violet;
+                      const scope = assessment.frameworkScope[fid];
+                      const cat = FRAMEWORK_REQUIREMENTS[fid] || [];
+                      const idx = (r) => { const i = cat.findIndex((x) => x.ref === r); return i === -1 ? 999 : i; };
+                      const reqs = Object.keys(scope).sort((a, b) => idx(a) - idx(b));
+                      return (
+                        <div key={fid} style={{ background: C.panel, border: `1px solid ${highlighted ? C.amber + "66" : C.line}`, borderRadius: 12, padding: "18px 18px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>{fw.name}</span>
+                            <Pill color={accent} soft={`${accent}1A`}>{fw.version}</Pill>
+                            {highlighted && <Pill color={C.amber} soft={`${C.amber}1A`}>Highlighted</Pill>}
+                            <Mono style={{ fontSize: 10, color: C.inkFaint, marginLeft: "auto" }}>{reqs.length + " req" + (reqs.length === 1 ? "" : "s")}</Mono>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {reqs.map((ref) => {
+                              const reqMeta = cat.find((r) => r.ref === ref);
+                              const entry = scope[ref];
+                              return (
+                                <div key={ref} style={{ background: C.panelHi, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.line}` }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                    <Mono style={{ fontSize: 11, color: accent, fontWeight: 600 }}>{ref}</Mono>
+                                    {reqMeta && <span style={{ fontSize: 11, color: C.inkFaint }}>{reqMeta.group}</span>}
+                                  </div>
+                                  {reqMeta && <div style={{ fontSize: 12, color: C.ink, fontWeight: 500, marginBottom: 4 }}>{reqMeta.title}</div>}
+                                  {reqMeta && <div style={{ fontSize: 11, color: C.inkDim, lineHeight: 1.4, marginBottom: 8 }}>{reqMeta.intent}</div>}
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                                    {entry.controlIds.map((cid) => <ChipLink key={cid} label={cid} color={C.teal} onClick={() => navigateTo(cid, "CONTROL")} />)}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+                );
+              })()}
 
-              <div style={{ marginTop: 28 }}>
-                <SectionLabel n="06" title="Recommended Governance Documents" hint={"Policy, standard, and procedure scaffolding the controls live under · " + assessment.docCount + " documents across " + assessment.docsByTier.filter((t) => t.docs.length).length + " tier" + (assessment.docsByTier.filter((t) => t.docs.length).length === 1 ? "" : "s")} />
+              {assessment.convergence.length > 0 && (
+                <div id="sec-convergence" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
+                  <SectionLabel n={secNumOf("convergence")} title="Convergence Pathways" hint={"Where spine failures cascade beyond GRC-owned domains · " + assessment.convergence.length + " pathway" + (assessment.convergence.length === 1 ? "" : "s") + " identified"} />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }} className="grid2">
+                    {assessment.convergence.map((c) => (
+                      <div key={c.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 18px", display: "flex", flexDirection: "column" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                          <Mono style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>{c.id}</Mono>
+                          <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, flex: 1 }}>{c.spineLabel}</span>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <CascadeFlow
+                            chain={c.chain}
+                            spineRisk={c.spineRisk}
+                            impactDomain={c.impactDomain}
+                            onRiskClick={() => { const r = assessment.risks.find((r) => r.id === c.spineRisk); if (r) setDrawer({ item: r, kind: "RISK" }); }}
+                          />
+                        </div>
+                        <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.5, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>{c.impact}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 14, display: "block", lineHeight: 1.55 }}>
+                    Convergence pathways show where GRC-owned spine failures cascade into domains owned by other functions. GRC prevents or detects the spine failure; the downstream domain owns the converged risk.
+                  </Mono>
+                </div>
+              )}
+
+              {assessment.maturity.length > 0 && (
+                <div id="sec-maturity" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
+                  <SectionLabel n={secNumOf("maturity")} title="Maturity Model" hint="Current baseline → target capability per in-scope domain" />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {assessment.maturity.map((m) => (
+                      <div key={m.domain} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "14px 16px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{m.domain}</span>
+                          <Mono style={{ fontSize: 11 }}>
+                            <span style={{ color: C.inkDim }}>L{m.current} {MATURITY_LEVELS[m.current - 1].label}</span>
+                            <span style={{ margin: "0 6px", color: C.inkFaint }}>→</span>
+                            <span style={{ color: C.teal }}>L{m.target} {MATURITY_LEVELS[m.target - 1].label}</span>
+                          </Mono>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                          {MATURITY_LEVELS.map((lvl) => {
+                            const isCurrent = lvl.level <= m.current;
+                            const inRange = lvl.level > m.current && lvl.level <= m.target;
+                            const bg = isCurrent ? C.inkFaint : inRange ? C.teal : C.line;
+                            return (
+                              <div key={lvl.level} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+                                <div style={{ width: "100%", height: 6, borderRadius: 3, background: bg, opacity: (isCurrent || inRange) ? 1 : 0.5 }} />
+                                <Mono style={{ fontSize: 9, color: (isCurrent || inRange) ? C.inkDim : C.inkFaint }}>{lvl.label}</Mono>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }} className="grid2">
+                          <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.45 }}><Mono style={{ fontSize: 9.5, color: C.inkFaint, letterSpacing: "0.06em", display: "block", marginBottom: 3 }}>CURRENT (ASSUMED)</Mono>{m.currentNote}</div>
+                          <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.45 }}><Mono style={{ fontSize: 9.5, color: C.teal, letterSpacing: "0.06em", display: "block", marginBottom: 3 }}>TARGET</Mono>{m.targetNote}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 10, display: "block", lineHeight: 1.55 }}>
+                    Current state is a baseline assumption for a new or un-governed initiative — the starting point before the recommended controls exist. Target is the capability the control set is designed to reach.
+                  </Mono>
+                </div>
+              )}
+
+              <div id="sec-docs" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
+                <SectionLabel n={secNumOf("docs")} title="Recommended Governance Documents" hint={"Policy, standard, and procedure scaffolding the controls live under · " + assessment.docCount + " documents across " + assessment.docsByTier.filter((t) => t.docs.length).length + " tier" + (assessment.docsByTier.filter((t) => t.docs.length).length === 1 ? "" : "s")} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
                   {assessment.docsByTier.filter((t) => t.docs.length > 0).map((t) => (
                     <div key={t.id}>
@@ -728,7 +1582,7 @@ export default function App() {
                             <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.5, marginBottom: 9 }}>{d.purpose}</div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
                               <Mono style={{ fontSize: 10, color: C.inkFaint }}>BACKS</Mono>
-                              {d.controls.map((cid) => <Mono key={cid} style={{ fontSize: 10, color: C.teal }}>{cid}</Mono>)}
+                              {d.controls.map((cid) => <ChipLink key={cid} label={cid} onClick={() => navigateTo(cid, "CONTROL")} />)}
                             </div>
                           </div>
                         ))}
@@ -741,8 +1595,8 @@ export default function App() {
                 </Mono>
               </div>
 
-              <div style={{ marginTop: 28 }}>
-                <SectionLabel n="07" title="Initiative-Specific Review" hint="AI layer — adds nuance the baseline library can't" />
+              <div id="sec-ai" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
+                <SectionLabel n={secNumOf("ai")} title="Initiative-Specific Review" hint="AI layer — adds nuance the baseline library can't" />
                 {aiState === "idle" && (
                   <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 22, textAlign: "center" }}>
                     <p style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55, margin: "0 auto 14px", maxWidth: 520 }}>The matrix above is the curated baseline. This step asks the AI layer to surface considerations specific to your exact initiative that a generic library would miss.</p>
@@ -797,7 +1651,7 @@ export default function App() {
         )}
         </>
         ) : (
-          <LibraryBrowser onOpen={setDrawer} />
+          <LibraryBrowser onOpen={setDrawer} onNavigate={navigateTo} />
         )}
       </main>
     </div>
