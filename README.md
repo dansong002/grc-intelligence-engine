@@ -2,7 +2,7 @@
 
 A React prototype that turns a plain-language description of a technology initiative into a sourced, auditor-ready governance package: risks rated for inherent and target-residual exposure, mapped controls with owners, implementation checklists, audit testing procedures, framework mapping, and a recommended governance document set across five tiers.
 
-**Live demo:** _add Cloudflare Pages URL once deployed_
+**Live demo:** [grc-intelligence-engine.pages.dev](https://grc-intelligence-engine.pages.dev)
 
 Runs entirely in the browser. No backend, no telemetry, no data leaves the page.
 
