@@ -2,6 +2,10 @@
 
 A React prototype that turns a plain-language description of a technology initiative into a sourced, auditor-ready governance package: risks rated for inherent and target-residual exposure, mapped controls with owners, implementation checklists, audit testing procedures, framework mapping, and a recommended governance document set across five tiers.
 
+**Live demo:** _add Cloudflare Pages URL once deployed_
+
+Runs entirely in the browser. No backend, no telemetry, no data leaves the page.
+
 ![Screenshot](docs/screenshot.png)
 
 ## Design thesis
@@ -36,22 +40,26 @@ npm install
 npm run dev
 ```
 
-To enable the optional AI layer, copy `.env.example` to `.env` and add your Anthropic API key:
+To enable the optional "Deepen with AI" layer locally, copy `.env.example` to `.env.local` and set a provider + key. The engine supports Anthropic Messages and OpenAI-compatible Chat Completions (covers OpenAI, Azure OpenAI, OpenRouter, and local models).
 
 ```bash
-cp .env.example .env
-# Edit .env and add your key
+cp .env.example .env.local
+# Set VITE_AI_PROVIDER (anthropic | openai) and VITE_AI_API_KEY
 ```
+
+`VITE_*` variables are bundled into the client build, so the public deployment ships **without** a key. Anyone running the engine locally can wire in their own.
 
 ## Knowledge library coverage
 
-The current library (v0.2.0) covers:
+The current library (v0.4.0) covers:
 
-- **22 risks** across 7 domains: Technology, Cybersecurity, Data Security & Privacy, Third-Party Risk, Compliance, AI Governance, and Resilience
-- **31 controls** with implementation steps and audit testing procedures for each
-- **7 system archetypes**: SaaS Financial/ERP, Payments/CDE, AI/GenAI, General SaaS, Data Platform, Infrastructure Change, Physical Site Outage/DR
-- **Framework references** to SOX ITGC, PCI DSS 4.0, NIST CSF 2.0, ISO 27001:2022, NIST 800-53, ISO 22301, NIST AI RMF, ISO 42001, EU AI Act, GDPR, and CCPA/CPRA
-- **27 governance documents** across 5 tiers (charters, policies, standards, procedures, guidelines)
+- **40 risks** across Technology, Cybersecurity, Data Security & Privacy, Third-Party Risk, Compliance, AI Governance, Resilience, and Operations
+- **50 controls** with implementation steps and audit testing procedures for each, cross-referenced to the Secure Controls Framework (SCF) 2026.1
+- **15 system archetypes** spanning SaaS Financial/ERP, Payments/CDE, AI/GenAI, General SaaS, Data Platform, Infrastructure Change, Physical Site Outage/DR, Retail & Fuel Operations, Distribution & Replenishment, Procure-to-Pay, Payroll & HR, Payment Acceptance (POS), Endpoint & Identity, Network & Perimeter, and Incident Response
+- **6 industry profiles** with critical-process, framework-overlay, and BIA-weighting detail: Retail & Fuel (C-Store, deep), Banking, Crypto, Manufacturing & Defense, Healthcare, and General
+- **20 framework references**: SOX ITGC, PCI DSS 4.0.1, NIST CSF 2.0, NIST 800-53 Rev5, NIST RMF, NIST AI RMF, ISO/IEC 27001:2022, ISO/IEC 42001:2023, ISO 22301, COBIT 2019, Secure Controls Framework 2026.1, FFIEC IT Examination Handbook, CMMC, NIST SP 800-171, GDPR, CCPA/CPRA, EU AI Act, HIPAA/HITECH, GLBA, and MiCA — each linked to its official source
+- **20 convergence pathways** documenting how a GRC-owned spine failure cascades into a domain owned by another function
+- **Governance document recommendations** for every control across 5 tiers (charters, policies, standards, procedures, guidelines)
 
 ## Disclaimer
 
@@ -63,9 +71,7 @@ All output is decision-support material. It does not constitute a professional o
 
 The following were deliberately left out of this prototype to keep focus on the core design thesis:
 
-- **Incident response and event management** — different domain, different data model
-- **Deployment and hosting** — this is a local-first prototype, not a SaaS product
-- **System integrations** — no ServiceNow, OneTrust, or SIEM connectors; the value proposition is the knowledge graph, not the plumbing
-- **User authentication and multi-tenancy** — out of scope for a single-user prototype
-- **Persistent storage** — assessments are ephemeral; export captures the output
-- **Automated testing and CI** — appropriate for a production build, premature for a design validation prototype
+- **System integrations** — no ServiceNow, OneTrust, or SIEM connectors yet; the "Connect your risk register" placeholder in the Library frames the intended write-back model (gap-detection vs. an existing register, draft-entry sync) but is not wired up. The current value proposition is the knowledge graph, not the plumbing.
+- **User authentication and multi-tenancy** — the public preview is a single-user, in-browser experience. Implementation Checklist progress persists to the user's own `localStorage`.
+- **Persistent storage** — assessments are ephemeral; export captures the output as a standalone HTML brief.
+- **Automated testing and CI** — appropriate for a production build, premature for a design-validation prototype.
