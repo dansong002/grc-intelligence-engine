@@ -1,7 +1,14 @@
 {
   "name": "grc-intelligence-engine",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.4.0",
+  "description": "Plain-language technology initiative to sourced, auditor-ready risk, control, and evidence package. Deterministic GRC intelligence engine with a curated library across 20 frameworks.",
+  "author": "@dansong002",
+  "homepage": "https://grc-intelligence-engine.pages.dev/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dansong002/grc-intelligence-engine.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -75,3 +75,9 @@ The following were deliberately left out of this prototype to keep focus on the 
 - **User authentication and multi-tenancy** — the public preview is a single-user, in-browser experience. Implementation Checklist progress persists to the user's own `localStorage`.
 - **Persistent storage** — assessments are ephemeral; export captures the output as a standalone HTML brief.
 - **Automated testing and CI** — appropriate for a production build, premature for a design-validation prototype.
+
+---
+
+Built by [@dansong002](https://github.com/dansong002) · GRC Practitioner
+
+© 2026 @dansong002. All rights reserved. No license granted; source is published for inspection and feedback only.

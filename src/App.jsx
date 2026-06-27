@@ -1899,6 +1899,17 @@ export default function App() {
           <LibraryBrowser onOpen={setDrawer} onNavigate={navigateTo} />
         )}
       </main>
+      <footer style={{ borderTop: `1px solid ${C.line}`, marginTop: 60, padding: "28px 24px 32px", color: C.inkFaint, fontSize: 12, lineHeight: 1.55 }}>
+        <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            Built by <Mono style={{ color: C.ink }}>@dansong002</Mono> · <span style={{ color: C.inkDim }}>GRC Practitioner</span>
+          </div>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            <a href="https://github.com/dansong002/grc-intelligence-engine" target="_blank" rel="noopener noreferrer" style={{ color: C.inkDim, textDecoration: "none", borderBottom: `1px dashed ${C.inkFaint}55` }}>View source on GitHub ↗</a>
+            <span>© {new Date().getFullYear()}</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
