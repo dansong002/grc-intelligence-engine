@@ -18,3 +18,8 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Local agent / Claude tooling artifacts (private references)
+.agents
+.claude
+skills-lock.json

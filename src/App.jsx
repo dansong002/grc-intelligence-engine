@@ -28,6 +28,7 @@ import {
   FRAMEWORK_REQUIREMENTS,
   FRAMEWORK_ALIASES,
   CONTROL_FRAMEWORK_MAP,
+  INDUSTRIES,
 } from "./knowledge";
 
 /* ============================================================================
@@ -415,6 +416,69 @@ function SourceDrawer({ item, kind, onClose, onNavigate }) {
           </>
         )}
 
+        {kind === "RISK-INTAKE" && (
+          <>
+            <Field label="Status"><Pill color={C.amber} soft={`${C.amber}1A`}>Coming soon</Pill></Field>
+            <Field label="Vision">
+              <span style={{ color: C.ink }}>Connecting to your organization's live risk register transforms the engine from a greenfield generator into a risk-intake accelerator.</span>
+            </Field>
+            <Field label="What it enables">
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ background: C.panelHi, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.line}` }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: C.teal, marginBottom: 3 }}>Gap detection</div>
+                  <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.45 }}>Compare the engine's curated library against your existing register to surface risks and controls you have not yet addressed.</div>
+                </div>
+                <div style={{ background: C.panelHi, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.line}` }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: C.amber, marginBottom: 3 }}>Write-back</div>
+                  <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.45 }}>Accept engine-generated items as draft entries in your register, complete with control mappings and framework references, ready for practitioner review.</div>
+                </div>
+              </div>
+            </Field>
+            <Field label="Compatible sources">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {["ServiceNow GRC/IRM", "RSA Archer", "AuditBoard", "LogicGate", "OneTrust", "Jira", "CSV / Excel"].map((s) => (
+                  <span key={s} style={{ fontSize: 11.5, color: C.inkDim, background: C.panelHi, padding: "3px 8px", borderRadius: 5, border: `1px solid ${C.line}` }}>{s}</span>
+                ))}
+              </div>
+            </Field>
+            <div style={{ marginTop: 16, padding: "12px 14px", background: `${C.amber}0F`, border: `1px solid ${C.amber}33`, borderRadius: 8, fontSize: 12, color: C.inkDim, lineHeight: 1.5 }}>
+              This is a preview of a planned capability. No data is exchanged today. Interested in early access? The feature roadmap is shaped by practitioner feedback.
+            </div>
+          </>
+        )}
+
+        {kind === "ARCHETYPE" && (
+          <>
+            <Field label="Hint">{item.hint}</Field>
+            <Field label={"Signals (" + item.signals.length + ")"}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {item.signals.map((s, i) => <Mono key={i} style={{ fontSize: 10.5, color: C.inkDim, background: C.panelHi, padding: "2px 7px", borderRadius: 4 }}>{s}</Mono>)}
+              </div>
+            </Field>
+            <Field label={"Triggered risks (" + item.risks.length + ")"}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {item.risks.filter((rid) => RISKS[rid]).map((rid) => <ChipLink key={rid} label={rid} color={RATING_COLOR[RISKS[rid].inherent]} onClick={() => onNavigate && onNavigate(rid, "RISK")} />)}
+              </div>
+            </Field>
+            {BIA_PROFILES[item.id] && (
+              <Field label="BIA profile">
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {BIA_DIMENSIONS.map((dim) => {
+                    const cell = BIA_PROFILES[item.id][dim.id];
+                    return cell ? (
+                      <div key={dim.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ width: 90, fontSize: 12, color: C.inkDim, flexShrink: 0 }}>{dim.label}</span>
+                        <Pill color={RATING_COLOR[cell.rating]} soft={`${RATING_COLOR[cell.rating]}1A`}><SevIcon level={cell.rating} />{cell.rating}</Pill>
+                        <span style={{ fontSize: 11.5, color: C.inkFaint }}>{cell.note}</span>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              </Field>
+            )}
+          </>
+        )}
+
         {kind === "FRAMEWORK" && (
           <>
             <Field label="Type"><Pill color={item.kind === "regulation" ? C.red : C.violet} soft={`${item.kind === "regulation" ? C.red : C.violet}1A`}>{item.kind === "regulation" ? "Regulation" : "Control Framework"}</Pill></Field>
@@ -422,6 +486,7 @@ function SourceDrawer({ item, kind, onClose, onNavigate }) {
             <Field label="Publisher">{item.publisher}</Field>
             {item.date && <Field label="Date">{item.date}</Field>}
             {item.jurisdiction && <Field label="Jurisdiction">{item.jurisdiction}</Field>}
+            {item.url && <Field label="Official reference"><a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color: C.teal, fontSize: 13 }}>{item.url.replace(/^https?:\/\//, "").replace(/\/$/, "")} ↗</a></Field>}
             <Field label="Summary"><span style={{ color: C.ink }}>{item.summary}</span></Field>
             {item.note && <Field label="Note"><span style={{ color: C.inkDim, fontStyle: "italic" }}>{item.note}</span></Field>}
             {FRAMEWORK_REQUIREMENTS[item.id] && (
@@ -512,9 +577,9 @@ function Why({ title, body }) {
 // Gap 1 — orientation at the point of use. Three steps + the determinism promise.
 function HowItWorks({ onExploreLibrary }) {
   const steps = [
-    { n: "1", t: "Describe", d: "Write a plain-language description of a technology initiative — name the system, the data it handles, and key integrations. The more concrete, the better the match." },
-    { n: "2", t: "Generate", d: "The engine classifies it against curated archetypes (no LLM in the core path) and assembles risks, controls, audit evidence, framework obligations, a maturity read, and a go/no-go." },
-    { n: "3", t: "Drill in", d: "Every ID is a link. Open any risk, control, or framework to see its sourced entry and how it connects to the rest of the knowledge graph — then export the package as a standalone brief." },
+    { n: "1", t: "Describe", d: "Write a plain-language description of a technology initiative. Name the system, the data it handles, and key integrations. The more concrete, the better the match." },
+    { n: "2", t: "Generate", d: "The engine classifies it against curated archetypes using rules, not a model. It assembles risks, controls, audit evidence, framework obligations, a maturity read, and a go/no-go." },
+    { n: "3", t: "Drill in", d: "Every ID is a link. Open any risk, control, or framework to see its sourced entry, how it connects to the rest of the knowledge graph, then export the package as a standalone brief." },
   ];
   return (
     <section style={{ marginTop: 6, paddingTop: 30 }}>
@@ -531,7 +596,7 @@ function HowItWorks({ onExploreLibrary }) {
         ))}
       </div>
       <div style={{ marginTop: 12, fontSize: 12.5, color: C.inkFaint, lineHeight: 1.55 }}>
-        <Mono style={{ color: C.teal }}>Deterministic</Mono> · every line traces to a sourced library entry · runs entirely in your browser — no initiative data leaves the page.
+        <Mono style={{ color: C.teal }}>Rules-based and reproducible</Mono> · the same initiative always produces the same package · every line traces to a source · runs entirely in your browser, no data leaves the page.
         {onExploreLibrary && <> · <span role="button" tabIndex={0} onClick={onExploreLibrary} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onExploreLibrary(); } }} style={{ color: C.teal, cursor: "pointer", fontWeight: 600 }}>Explore the Library →</span></>}
       </div>
     </section>
@@ -625,7 +690,7 @@ function CascadeFlow({ chain, spineRisk, impactDomain, onRiskClick }) {
                 {i === 0 && spineRisk && (
                   <div style={{ marginTop: 5 }}>
                     <Mono style={{ fontSize: 10, color: C.inkFaint }}>SPINE RISK: </Mono>
-                    <Mono onClick={onRiskClick} style={{ fontSize: 10, color: C.teal, cursor: onRiskClick ? "pointer" : "default", textDecoration: onRiskClick ? "underline" : "none", textDecorationColor: `${C.teal}55`, textUnderlineOffset: 2 }}>{spineRisk}</Mono>
+                    <Mono onClick={onRiskClick} style={{ fontSize: 10, color: C.teal, cursor: onRiskClick ? "pointer" : "default", textDecorationLine: onRiskClick ? "underline" : "none", textDecorationColor: `${C.teal}55`, textUnderlineOffset: 2 }}>{spineRisk}</Mono>
                   </div>
                 )}
                 {isLast && impactDomain && (
@@ -712,18 +777,18 @@ function LibraryBrowser({ onOpen, onNavigate }) {
     { id: "risks", label: "Risks (" + allRisks.length + ")" },
     { id: "controls", label: "Controls (" + allControls.length + ")" },
     { id: "convergence", label: "Convergence (" + CONVERGENCE.length + ")" },
-    { id: "scf", label: "SCF (" + SCF_DOMAINS.length + ")" },
     { id: "archetypes", label: "Archetypes (" + ARCHETYPES.length + ")" },
     { id: "frameworks", label: "Frameworks (" + allFrameworks.length + ")" },
+    { id: "industries", label: "Industries (" + INDUSTRIES.length + ")" },
   ];
-  const showFilter = tab === "risks" || tab === "controls" || tab === "archetypes" || tab === "convergence" || tab === "scf" || tab === "frameworks";
+  const showFilter = tab === "risks" || tab === "controls" || tab === "archetypes" || tab === "convergence" || tab === "frameworks" || tab === "industries";
 
   return (
     <section style={{ paddingTop: 40, paddingBottom: 20 }}>
       <Mono style={{ fontSize: 12, letterSpacing: "0.1em", color: C.amber }}>THE CURATED LIBRARY</Mono>
       <h1 style={{ fontSize: "clamp(26px, 4vw, 38px)", fontWeight: 700, lineHeight: 1.1, letterSpacing: "-0.02em", margin: "14px 0 12px", maxWidth: 720 }}>The asset, as data.</h1>
       <p style={{ color: C.inkDim, fontSize: 15.5, lineHeight: 1.55, maxWidth: 640, margin: "0 0 22px" }}>
-        Every risk and control the engine draws on, with its framework mapping, owner, and the evidence an auditor expects. This curated graph — not the model — is what makes the output consistent and defensible. Click any entry to inspect its source.
+        Every risk and control the engine draws on, with its framework mapping, owner, and the evidence an auditor expects. This curated graph (not the model) is what makes the output consistent and defensible. Click any entry to inspect its source.
       </p>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
@@ -733,6 +798,14 @@ function LibraryBrowser({ onOpen, onNavigate }) {
         )}
       </div>
 
+      {tab === "risks" && (<>
+        <div style={{ background: C.panel, border: `1px dashed ${C.amber}44`, borderRadius: 11, padding: "12px 16px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.5 }}>
+            <span style={{ fontWeight: 600, color: C.ink }}>Have an existing risk register?</span> Connect it to detect gaps against the curated library and draft new entries automatically.
+          </div>
+          <button onClick={() => onOpen({ item: { id: "RISK-INTAKE", title: "Connect Your Risk Register" }, kind: "RISK-INTAKE" })} style={{ background: `${C.amber}1A`, border: `1px solid ${C.amber}55`, color: C.amber, borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>Connect register →</button>
+        </div>
+      </>)}
       {tab === "risks" && (risks.length > 0 ? (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }} className="grid2">
           {risks.map((r) => (
@@ -794,7 +867,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
       {tab === "archetypes" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {arches.map((a) => (
-            <div key={a.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "16px 18px" }}>
+            <Card key={a.id} onClick={() => onOpen({ item: a, kind: "ARCHETYPE" })}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
                 <Pill color={C.amber} soft={`${C.amber}1A`}>{a.label}</Pill>
                 <Mono style={{ fontSize: 10.5, color: C.inkFaint }}>{a.risks.length + " risks"}</Mono>
@@ -808,7 +881,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
                 {a.risks.filter((rid) => RISKS[rid]).map((rid) => <ChipLink key={rid} label={rid} onClick={() => onOpen({ item: RISKS[rid], kind: "RISK" })} />)}
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -821,7 +894,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
               <span style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>Secure Controls Framework</span>
             </div>
             <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.5 }}>
-              {SCF_DOMAINS.reduce((s, d) => s + d.count, 0).toLocaleString()} controls across {SCF_DOMAINS.length} domains. Each curated control in this library is cross-referenced to its SCF equivalent — click any control to see the mapping.
+              {SCF_DOMAINS.reduce((s, d) => s + d.count, 0).toLocaleString()} controls across {SCF_DOMAINS.length} domains. Each curated control in this library is cross-referenced to its SCF equivalent. Click any control to see the mapping.
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }} className="grid2">
@@ -876,7 +949,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
               <Pill color={C.violet} soft={`${C.violet}1A`}>{allFrameworks.length} frameworks & regulations</Pill>
             </div>
             <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.55 }}>
-              Verified versions as of June 2026. Each entry carries paraphrased intent — never verbatim standard text. Click any entry for full detail, requirements, and the risks it governs.
+              Verified versions as of June 2026. Each entry carries paraphrased intent, never verbatim standard text. Click any entry for full detail, requirements, and the risks it governs.
             </div>
           </div>
 
@@ -893,7 +966,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
                       onClick={() => setExpandedDomain(isExpanded ? null : fw.id)}
                       onMouseEnter={(e) => { e.currentTarget.style.background = C.panelHi; }} onMouseLeave={(e) => { e.currentTarget.style.background = C.panel; }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{fw.name}</span>
+                        {fw.url ? <a href={fw.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 14, fontWeight: 600, color: C.ink, textDecoration: "none", borderBottom: `1px dashed ${C.inkFaint}55` }}>{fw.name} <span style={{ fontSize: 10, opacity: 0.6 }}>↗</span></a> : <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{fw.name}</span>}
                         <Pill color={group.color} soft={`${group.color}1A`}>{fw.version}</Pill>
                       </div>
                       <div style={{ fontSize: 12.5, color: C.inkDim, lineHeight: 1.45, marginBottom: 6 }}>{fw.summary}</div>
@@ -903,7 +976,44 @@ function LibraryBrowser({ onOpen, onNavigate }) {
                         <span style={{ fontSize: 11, color: C.amber, marginLeft: "auto" }}>{isExpanded ? "▾ collapse" : "→ expand"}</span>
                       </div>
                       {fw.note && <div style={{ fontSize: 11.5, color: C.inkFaint, fontStyle: "italic", marginTop: 6, lineHeight: 1.4 }}>{fw.note}</div>}
-                      {isExpanded && reqs.length > 0 && (
+                      {isExpanded && fw.id === "SCF" && (
+                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+                          <Mono style={{ fontSize: 10, color: C.amber, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>DOMAINS ({SCF_DOMAINS.length})</Mono>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }} className="grid2">
+                            {SCF_DOMAINS.filter((d) => !ql || (d.id + " " + d.name).toLowerCase().includes(ql)).map((d) => {
+                              const mappedScfIds = Object.values(SCF_MAPPING).flat().filter((sid) => sid.startsWith(d.id + "-") || sid.startsWith(d.id.toLowerCase() + "-"));
+                              const mappedCount = mappedScfIds.length;
+                              const isScfExpanded = expandedDomain === "scf-" + d.id;
+                              const mappedCtls = mappedCount > 0 ? Object.entries(SCF_MAPPING).filter(([, sids]) => sids.some((sid) => sid.startsWith(d.id + "-") || sid.startsWith(d.id.toLowerCase() + "-"))).map(([ctlId, sids]) => ({ ctlId, scfIds: sids.filter((sid) => sid.startsWith(d.id + "-") || sid.startsWith(d.id.toLowerCase() + "-")) })) : [];
+                              return (
+                                <div key={d.id} style={{ background: C.panelHi, border: `1px solid ${isScfExpanded ? C.amber + "55" : C.line}`, borderRadius: 8, padding: "10px 12px", cursor: mappedCount > 0 ? "pointer" : "default" }}
+                                  onClick={(e) => { e.stopPropagation(); if (mappedCount > 0) setExpandedDomain(isScfExpanded ? null : "scf-" + d.id); }}>
+                                  <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{d.name}</div>
+                                  <Mono style={{ fontSize: 10, color: C.inkFaint, marginTop: 2, display: "block" }}>{d.id} · {d.count} controls</Mono>
+                                  {mappedCount > 0 && <Mono style={{ fontSize: 10, color: C.teal, marginTop: 3, display: "block" }}>{mappedCount} mapped</Mono>}
+                                  {isScfExpanded && mappedCtls.length > 0 && (
+                                    <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.line}`, display: "flex", flexDirection: "column", gap: 6 }}>
+                                      {mappedCtls.map(({ ctlId, scfIds }) => {
+                                        const ctl = CONTROLS[ctlId];
+                                        return (
+                                          <div key={ctlId}>
+                                            <ChipLink label={ctlId} onClick={() => onNavigate && onNavigate(ctlId, "CONTROL")} />
+                                            <span style={{ fontSize: 11.5, fontWeight: 600, color: C.ink, marginLeft: 6 }}>{ctl ? ctl.title : ctlId}</span>
+                                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                                              {scfIds.map((sid) => { const s = SCF_CONTROLS[sid]; return <Mono key={sid} style={{ fontSize: 10, color: C.amber }}>{sid}{s ? " — " + s.title : ""}</Mono>; })}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {isExpanded && reqs.length > 0 && fw.id !== "SCF" && (
                         <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}`, display: "flex", flexDirection: "column", gap: 6 }}>
                           {reqs.map((req) => {
                             const mappedCtls = (REQUIREMENT_CONTROLS[fw.id] || {})[req.ref] || [];
@@ -934,6 +1044,88 @@ function LibraryBrowser({ onOpen, onNavigate }) {
           ))}
         </div>
       )}
+
+      {tab === "industries" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 18px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <Mono style={{ fontSize: 12, letterSpacing: "0.1em", color: C.amber }}>MULTI-INDUSTRY TUNING</Mono>
+              <Pill color={C.amber} soft={`${C.amber}1A`}>{INDUSTRIES.length} profiles</Pill>
+            </div>
+            <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.55 }}>
+              The engine adapts to different verticals through industry profiles. Each profile shapes which frameworks apply, how business impact is weighted, and which processes are most critical. Retail/Fuel carries a deep treatment; others are lighter showcases.
+            </div>
+          </div>
+          {INDUSTRIES.filter((ind) => !ql || (ind.label + " " + ind.description + " " + ind.criticalProcesses.map((p) => p.name).join(" ")).toLowerCase().includes(ql)).map((ind) => {
+            const isExpanded = expandedDomain === "ind-" + ind.id;
+            return (
+              <div key={ind.id} style={{ background: C.panel, border: `1px solid ${isExpanded ? C.amber + "66" : C.line}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer", transition: "all .15s" }}
+                onClick={() => setExpandedDomain(isExpanded ? null : "ind-" + ind.id)}
+                onMouseEnter={(e) => { e.currentTarget.style.background = C.panelHi; }} onMouseLeave={(e) => { e.currentTarget.style.background = C.panel; }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontSize: 16, fontWeight: 600, color: C.ink }}>{ind.label}</span>
+                  <span style={{ fontSize: 11, color: C.amber, flexShrink: 0 }}>{isExpanded ? "▾ collapse" : "→ expand"}</span>
+                </div>
+                <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.5, marginBottom: 10 }}>{ind.description}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {ind.frameworkOverlays.map((fid) => {
+                    const fw = FRAMEWORKS[fid];
+                    return fw ? <Pill key={fid} color={fw.kind === "regulation" ? C.red : C.violet} soft={`${(fw.kind === "regulation" ? C.red : C.violet)}1A`}>{fw.name}</Pill> : null;
+                  })}
+                </div>
+
+                {isExpanded && (
+                  <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+                    <Mono style={{ fontSize: 10, color: C.amber, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>CRITICAL BUSINESS PROCESSES</Mono>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+                      {ind.criticalProcesses.map((p) => (
+                        <div key={p.name} style={{ background: C.panelHi, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.line}` }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 2 }}>{p.name}</div>
+                          <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.4 }}>{p.summary}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <Mono style={{ fontSize: 10, color: C.violet, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>FRAMEWORK & REGULATORY OVERLAYS</Mono>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+                      {ind.frameworkOverlays.map((fid) => {
+                        const fw = FRAMEWORKS[fid];
+                        if (!fw) return null;
+                        const accent = fw.kind === "regulation" ? C.red : C.violet;
+                        return (
+                          <span key={fid} onClick={() => onNavigate && onNavigate(fid, "FRAMEWORK")} role="button" tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate && onNavigate(fid, "FRAMEWORK"); } }}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${accent}0F`, border: `1px solid ${accent}33`, borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: accent }}>{fw.name}</span>
+                            <Mono style={{ fontSize: 10, color: C.inkFaint }}>{fw.version}</Mono>
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    <Mono style={{ fontSize: 10, color: C.teal, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>BIA WEIGHTING BIAS</Mono>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+                      {Object.entries(ind.biaBias).map(([dim, rating]) => (
+                        <div key={dim} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 12, color: C.inkDim, textTransform: "capitalize" }}>{dim}</span>
+                          <Pill color={RATING_COLOR[rating]} soft={`${RATING_COLOR[rating]}1A`}><SevIcon level={rating} />{rating}</Pill>
+                        </div>
+                      ))}
+                    </div>
+
+                    <Mono style={{ fontSize: 10, color: C.inkFaint, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>SAMPLE INITIATIVES</Mono>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {ind.sampleInitiatives.map((s, i) => (
+                        <div key={i} style={{ background: C.panelHi, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.line}`, fontSize: 12.5, color: C.inkDim, lineHeight: 1.45, fontStyle: "italic" }}>"{s}"</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -947,9 +1139,22 @@ export default function App() {
   const [aiNotes, setAiNotes] = useState(null);
   const [aiState, setAiState] = useState("idle");
   const [exported, setExported] = useState(false);
+  const [checkedSteps, setCheckedSteps] = useState(() => {
+    try { const v = localStorage.getItem("grc-checklist"); return v ? new Set(JSON.parse(v)) : new Set(); } catch { return new Set(); }
+  });
+  const [riskIntakeOpen, setRiskIntakeOpen] = useState(false);
   const resultRef = useRef(null);
 
   const assessment = useMemo(() => submitted ? buildAssessment(submitted) : null, [submitted]);
+
+  const toggleStep = (key) => {
+    setCheckedSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem("grc-checklist", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
 
   const navigateTo = (id, kind) => {
     if (kind === "RISK") {
@@ -964,6 +1169,9 @@ export default function App() {
     } else if (kind === "FRAMEWORK") {
       const fw = FRAMEWORKS[id];
       if (fw) setDrawer({ item: fw, kind: "FRAMEWORK" });
+    } else if (kind === "ARCHETYPE") {
+      const a = ARCHETYPES.find((x) => x.id === id);
+      if (a) setDrawer({ item: a, kind: "ARCHETYPE" });
     }
   };
 
@@ -981,29 +1189,39 @@ export default function App() {
 
   const deepenWithAI = async () => {
     if (!assessment) return;
-    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      setAiState("no-key");
-      return;
-    }
+    const provider = (import.meta.env.VITE_AI_PROVIDER || "").toLowerCase();
+    const apiKey = import.meta.env.VITE_AI_API_KEY || import.meta.env.VITE_ANTHROPIC_API_KEY;
+    const baseUrl = import.meta.env.VITE_AI_BASE_URL;
+    const model = import.meta.env.VITE_AI_MODEL;
+    if (!apiKey) { setAiState("no-key"); return; }
     setAiState("loading");
     const riskList = assessment.risks.map((r) => r.id + ": " + r.title).join("\n");
     const controlList = assessment.controls.map((c) => c.control.id + ": " + c.control.title + " (" + c.control.type + ")").join("\n");
-    const prompt = "You are a senior GRC architect reviewing a draft assessment. The initiative is:\n\n\"" + submitted + "\"\n\nA baseline assessment from our curated control library already identified these risks:\n" + riskList + "\n\nWith these controls mapped:\n" + controlList + "\n\nYour job is NOT to repeat them. Identify up to 3 initiative-SPECIFIC considerations the generic baseline would miss. For each, give a one-sentence watch and a one-sentence why. Return ONLY a JSON array, no markdown:\n[{\"watch\":\"...\",\"why\":\"...\"}]";
+    const systemMsg = "You are a GRC practitioner reviewing a draft assessment. Identify up to 3 initiative-SPECIFIC considerations the generic baseline would miss. For each, give a one-sentence watch and a one-sentence why. Return ONLY a JSON array, no markdown:\n[{\"watch\":\"...\",\"why\":\"...\"}]";
+    const userMsg = "The initiative is:\n\n\"" + submitted + "\"\n\nBaseline risks:\n" + riskList + "\n\nControls mapped:\n" + controlList;
+    const isAnthropic = provider === "anthropic" || (!provider && !baseUrl);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: prompt }] }),
-      });
-      if (!res.ok) { setAiState("error"); return; }
-      const data = await res.json();
-      const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      let text;
+      if (isAnthropic) {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: model || "claude-sonnet-4-6", max_tokens: 1000, system: systemMsg, messages: [{ role: "user", content: userMsg }] }),
+        });
+        if (!res.ok) { setAiState("error"); return; }
+        const data = await res.json();
+        text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      } else {
+        const url = (baseUrl || "https://api.openai.com/v1") + "/chat/completions";
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+          body: JSON.stringify({ model: model || "gpt-4o", max_tokens: 1000, messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }] }),
+        });
+        if (!res.ok) { setAiState("error"); return; }
+        const data = await res.json();
+        text = (data.choices && data.choices[0] && data.choices[0].message) ? data.choices[0].message.content : "";
+      }
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (!jsonMatch) { setAiState("error"); return; }
       const parsed = JSON.parse(jsonMatch[0]);
@@ -1194,11 +1412,20 @@ export default function App() {
         <section style={{ paddingTop: 56, paddingBottom: 20 }}>
           <Mono style={{ fontSize: 12, letterSpacing: "0.1em", color: C.amber }}>INITIATIVE TO GOVERNANCE PACKAGE</Mono>
           <h1 style={{ fontSize: "clamp(30px, 5vw, 46px)", fontWeight: 700, lineHeight: 1.08, letterSpacing: "-0.025em", margin: "16px 0 14px", maxWidth: 760 }}>
-            Describe what you're building. Get the risk, control, and evidence package a senior GRC architect would draft.
+            Describe what you're building. Get an auditor-ready risk, control, and evidence package.
           </h1>
           <p style={{ color: C.inkDim, fontSize: 16, lineHeight: 1.55, maxWidth: 620, margin: 0 }}>
-            Backed by a curated control library — every risk and control traces to an inspectable source. Built to accelerate a practitioner's judgment, not replace it.
+            Backed by a curated control library where every risk and control traces to an inspectable source. Built to accelerate a practitioner's judgment, not replace it.
           </p>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 14, fontSize: 12.5, color: C.inkFaint }}>
+            <span>{Object.keys(FRAMEWORKS).length} frameworks</span>
+            <span style={{ color: C.line }}>·</span>
+            <span>{SCF_DOMAINS.reduce((s, d) => s + d.count, 0).toLocaleString()} SCF controls</span>
+            <span style={{ color: C.line }}>·</span>
+            <span>{Object.keys(RISKS).length} risks · {Object.keys(CONTROLS).length} controls</span>
+            <span style={{ color: C.line }}>·</span>
+            <span>Runs in-browser</span>
+          </div>
           <div style={{ marginTop: 30, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 18 }}>
             <textarea aria-label="Describe the technology initiative to assess" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }} placeholder="e.g. We are implementing a new third-party SaaS platform that stores customer payment information and integrates with our ERP…" rows={3} style={{ width: "100%", background: "transparent", border: "none", outlineOffset: 4, resize: "vertical", color: C.ink, fontSize: 15.5, lineHeight: 1.55, fontFamily: "'Inter', sans-serif", minHeight: 70 }} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 12 }}>
@@ -1252,18 +1479,18 @@ export default function App() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }} className="grid2">
                 <StatCard n={assessment.risks.length} label="Risks identified" color={C.amber} />
                 <StatCard n={assessment.controls.length} label="Controls recommended" color={C.teal} />
-                <StatCard n={assessment.inherentHC} label="High / Critical — inherent" color={C.red} />
-                <StatCard n={assessment.residualHC} label="High / Critical — residual*" color={assessment.residualHC < assessment.inherentHC ? C.teal : C.red} />
+                <StatCard n={assessment.inherentHC} label="High / Critical (inherent)" color={C.red} />
+                <StatCard n={assessment.residualHC} label="High / Critical (residual*)" color={assessment.residualHC < assessment.inherentHC ? C.teal : C.red} />
               </div>
               {assessment.residualHC < assessment.inherentHC && (
                 <div style={{ marginBottom: 28, fontSize: 12.5, color: C.inkDim, lineHeight: 1.5 }}>
-                  <Mono style={{ color: C.teal }}>{"↓ " + (assessment.inherentHC - assessment.residualHC)}</Mono> fewer high/critical risks once the recommended controls are in place. <span style={{ color: C.inkFaint }}>*Target residual — not earned until the controls exist.</span>
+                  <Mono style={{ color: C.teal }}>{"↓ " + (assessment.inherentHC - assessment.residualHC)}</Mono> fewer high/critical risks once the recommended controls are in place. <span style={{ color: C.inkFaint }}>*Target residual, not earned until the controls exist.</span>
                 </div>
               )}
 
               <div style={{ background: `${C.teal}0F`, border: `1px solid ${C.teal}40`, borderRadius: 12, padding: "13px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.5, flex: 1, minWidth: 260 }}>
-                  <span style={{ color: C.teal, fontWeight: 600 }}>This package is fully inspectable.</span> Click any <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.ink, border: `1px solid ${C.teal}44`, background: `${C.teal}10`, borderRadius: 4, padding: "1px 5px" }}>ID&#8202;↗</span> — risk, control, or framework — to open its sourced entry. Assembled from a curated library of {Object.keys(RISKS).length} risks · {Object.keys(CONTROLS).length} controls · {Object.keys(FRAMEWORKS).length} frameworks.
+                  <span style={{ color: C.teal, fontWeight: 600 }}>This package is fully inspectable.</span> Click any <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.ink, border: `1px solid ${C.teal}44`, background: `${C.teal}10`, borderRadius: 4, padding: "1px 5px" }}>ID&#8202;↗</span> (risk, control, or framework) to open its sourced entry. Assembled from a curated library of {Object.keys(RISKS).length} risks · {Object.keys(CONTROLS).length} controls · {Object.keys(FRAMEWORKS).length} frameworks.
                 </div>
                 <button onClick={() => setView("library")} style={{ background: C.canvas, border: `1px solid ${C.teal}66`, color: C.teal, borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>Explore Library →</button>
               </div>
@@ -1379,27 +1606,45 @@ export default function App() {
               </div>
 
               <div id="sec-checklist" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
-                <SectionLabel n={secNumOf("checklist")} title="Implementation Checklist" hint="Steps to stand up each recommended control" />
+                {(() => {
+                  const implControls = assessment.controls.filter((c) => c.procedures && c.procedures.implementation);
+                  const totalSteps = implControls.reduce((n, c) => n + c.procedures.implementation.length, 0);
+                  const doneSteps = implControls.reduce((n, c) => n + c.procedures.implementation.filter((_, i) => checkedSteps.has(c.control.id + ":" + i)).length, 0);
+                  return (<>
+                <SectionLabel n={secNumOf("checklist")} title="Implementation Checklist" hint={"Steps to stand up each recommended control · " + doneSteps + " / " + totalSteps + " complete"} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {assessment.controls.filter((c) => c.procedures && c.procedures.implementation).map((c) => (
+                  {implControls.map((c) => {
+                    const steps = c.procedures.implementation;
+                    const done = steps.filter((_, i) => checkedSteps.has(c.control.id + ":" + i)).length;
+                    return (
                     <div key={c.control.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "14px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9, flexWrap: "wrap" }}>
                         <ChipLink label={c.control.id} onClick={() => navigateTo(c.control.id, "CONTROL")} />
                         <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{c.control.title}</span>
                         <Pill color={TYPE_COLOR[c.control.type]} soft={`${TYPE_COLOR[c.control.type]}1A`}>{c.control.type}</Pill>
+                        <Mono style={{ fontSize: 10.5, color: done === steps.length ? C.teal : C.inkFaint, marginLeft: "auto" }}>{done} / {steps.length}</Mono>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {c.procedures.implementation.map((step, i) => (
-                          <div key={i} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
-                            <span style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${C.inkFaint}`, flexShrink: 0, marginTop: 1 }} />
-                            <span style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.45 }}>{step}</span>
+                        {steps.map((step, i) => {
+                          const key = c.control.id + ":" + i;
+                          const on = checkedSteps.has(key);
+                          return (
+                          <div key={i} role="button" tabIndex={0} onClick={() => toggleStep(key)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleStep(key); } }} style={{ display: "flex", gap: 9, alignItems: "flex-start", cursor: "pointer" }}>
+                            <span style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? C.teal : C.inkFaint}`, background: on ? `${C.teal}1A` : "transparent", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center", transition: "all .12s" }}>
+                              {on && <svg width="10" height="10" viewBox="0 0 12 12"><path d="M2.5 6 L5 8.5 L9.5 3.5" stroke={C.teal} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>}
+                            </span>
+                            <span style={{ fontSize: 13, color: on ? C.inkFaint : C.inkDim, lineHeight: 1.45, textDecorationLine: on ? "line-through" : "none", textDecorationColor: `${C.inkFaint}66` }}>{step}</span>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
-                <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 10, display: "block" }}>Checkboxes are visual — this preview doesn't persist state. The exported summary captures the full checklist.</Mono>
+                <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 10, display: "block" }}>Toggle steps as you complete them. Progress is saved in your browser.</Mono>
+                  </>);
+                })()}
               </div>
 
               <div id="sec-audit" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
@@ -1561,7 +1806,7 @@ export default function App() {
                     ))}
                   </div>
                   <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 10, display: "block", lineHeight: 1.55 }}>
-                    Current state is a baseline assumption for a new or un-governed initiative — the starting point before the recommended controls exist. Target is the capability the control set is designed to reach.
+                    Current state is a baseline assumption for a new or un-governed initiative, the starting point before the recommended controls exist. Target is the capability the control set is designed to reach.
                   </Mono>
                 </div>
               )}
@@ -1591,12 +1836,12 @@ export default function App() {
                   ))}
                 </div>
                 <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 12, display: "block", lineHeight: 1.55 }}>
-                  Recommended document set, not authored content. Each document is the scaffolding required to govern the controls listed — the writing remains the practitioner's, with the organization's own voice, governance hierarchy, and approval path.
+                  Recommended document set, not authored content. Each document is the scaffolding required to govern the controls listed. The writing remains the practitioner's, with the organization's own voice, governance hierarchy, and approval path.
                 </Mono>
               </div>
 
               <div id="sec-ai" style={{ marginTop: 28, scrollMarginTop: SCROLL_MT }}>
-                <SectionLabel n={secNumOf("ai")} title="Initiative-Specific Review" hint="AI layer — adds nuance the baseline library can't" />
+                <SectionLabel n={secNumOf("ai")} title="Initiative-Specific Review" hint="AI layer that adds nuance the baseline library cannot" />
                 {aiState === "idle" && (
                   <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 22, textAlign: "center" }}>
                     <p style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55, margin: "0 auto 14px", maxWidth: 520 }}>The matrix above is the curated baseline. This step asks the AI layer to surface considerations specific to your exact initiative that a generic library would miss.</p>
@@ -1605,14 +1850,14 @@ export default function App() {
                 )}
                 {aiState === "no-key" && (
                   <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, textAlign: "center" }}>
-                    <p style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55, margin: 0 }}>The AI layer requires an API key to run. Copy <Mono style={{ color: C.ink }}>.env.example</Mono> to <Mono style={{ color: C.ink }}>.env</Mono> and add your Anthropic API key, then restart the dev server. The curated baseline above stands on its own — this feature is additive.</p>
+                    <p style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55, margin: 0 }}>The AI layer requires an API key. Copy <Mono style={{ color: C.ink }}>.env.example</Mono> to <Mono style={{ color: C.ink }}>.env</Mono>, set your provider and API key, then restart the dev server. The curated baseline above stands on its own; this feature is additive.</p>
                   </div>
                 )}
                 {aiState === "loading" && (
                   <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, color: C.inkDim, fontSize: 13.5 }}><Mono style={{ color: C.violet }}>Analyzing initiative-specific exposure…</Mono></div>
                 )}
                 {aiState === "error" && (
-                  <div style={{ background: C.redSoft, border: `1px solid ${C.red}40`, borderRadius: 12, padding: 18, color: C.inkDim, fontSize: 13.5 }}>The AI layer couldn't be reached. The curated baseline above stands on its own — that's the point of grounding the product in a real library rather than the model alone.</div>
+                  <div style={{ background: C.redSoft, border: `1px solid ${C.red}40`, borderRadius: 12, padding: 18, color: C.inkDim, fontSize: 13.5 }}>The AI layer could not be reached. The curated baseline above stands on its own. That is the point of grounding the product in a real library rather than the model alone.</div>
                 )}
                 {aiState === "done" && aiNotes && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1643,9 +1888,9 @@ export default function App() {
         {!submitted && (
           <section style={{ marginTop: 8, paddingTop: 36, borderTop: `1px solid ${C.line}` }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18 }} className="grid2">
-              <Why title="The moat is the library, not the model" body="Anyone can wrap an LLM. The defensible asset is the curated risk-control-framework-evidence graph — versioned, editor-owned, improving with every assessment." />
+              <Why title="The moat is the library, not the model" body="Anyone can wrap an LLM. The defensible asset is the curated risk-control-framework-evidence graph: versioned, editor-owned, improving with every assessment." />
               <Why title="Every line is inspectable" body="Click any risk or control to see its source entry: statement, owner, frequency, and the evidence an auditor expects. Unsourced output has no place in GRC." />
-              <Why title="Assistive by design" body="Positioned as acceleration of a practitioner's judgment — never a replacement. That framing is both honest and the thing that keeps the product legally viable." />
+              <Why title="Assistive by design" body="Positioned as acceleration of a practitioner's judgment, never a replacement. That framing is both honest and the thing that keeps the product legally viable." />
             </div>
           </section>
         )}
