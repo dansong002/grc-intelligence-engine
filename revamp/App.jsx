@@ -223,13 +223,13 @@ function buildAssessment(text) {
 }
 
 function Mono({ children, style }) {
-  return <span style={{ fontFamily: "'IBM Plex Mono', ui-monospace, monospace", ...style }}>{children}</span>;
+  return <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", ...style }}>{children}</span>;
 }
 function Pill({ children, color, soft }) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 6,
-      fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 500,
+      fontFamily: "'JetBrains Mono', monospace", fontSize: 11, fontWeight: 500,
       letterSpacing: "0.03em", color, background: soft, padding: "3px 9px",
       borderRadius: 4, border: `1px solid ${color}33`, whiteSpace: "nowrap",
     }}>{children}</span>
@@ -266,7 +266,7 @@ function BrandMark({ size = 26 }) {
 function Field({ label, children }) {
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: "0.08em", color: C.inkFaint, textTransform: "uppercase", marginBottom: 7 }}>{label}</div>
+      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, letterSpacing: "0.08em", color: C.inkFaint, textTransform: "uppercase", marginBottom: 7 }}>{label}</div>
       <div style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55 }}>{children}</div>
     </div>
   );
@@ -408,7 +408,7 @@ function SourceDrawer({ item, kind, onClose, onNavigate }) {
                             {map[fid].map((ref) => {
                               const meta = (FRAMEWORK_REQUIREMENTS[fid] || []).find((r) => r.ref === ref);
                               return (
-                                <span key={ref} title={meta ? meta.title : ref} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: C.ink, background: `${accent}14`, border: `1px solid ${accent}33`, padding: "2px 7px", borderRadius: 5 }}>{ref}</span>
+                                <span key={ref} title={meta ? meta.title : ref} style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: C.ink, background: `${accent}14`, border: `1px solid ${accent}33`, padding: "2px 7px", borderRadius: 5 }}>{ref}</span>
                               );
                             })}
                           </div>
@@ -545,7 +545,7 @@ function SourceDrawer({ item, kind, onClose, onNavigate }) {
 function StatCard({ n, label, color }) {
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "16px 16px" }}>
-      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 30, fontWeight: 600, color, lineHeight: 1 }}>{n}</div>
+      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 30, fontWeight: 600, color, lineHeight: 1 }}>{n}</div>
       <div style={{ fontSize: 12, color: C.inkDim, marginTop: 7 }}>{label}</div>
     </div>
   );
@@ -594,7 +594,7 @@ function HowItWorks({ onExploreLibrary }) {
         {steps.map((s) => (
           <div key={s.n} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 9 }}>
-              <span style={{ width: 26, height: 26, borderRadius: 7, background: `${C.accent}1A`, border: `1px solid ${C.accent}55`, color: C.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700 }}>{s.n}</span>
+              <span style={{ width: 26, height: 26, borderRadius: 7, background: `${C.accent}1A`, border: `1px solid ${C.accent}55`, color: C.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 700 }}>{s.n}</span>
               <span style={{ fontSize: 15, fontWeight: 600, color: C.ink }}>{s.t}</span>
             </div>
             <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.55 }}>{s.d}</div>
@@ -657,8 +657,8 @@ function SectionNav({ sections }) {
       {sections.map((s, i) => {
         const on = active === s.id;
         return (
-          <button key={s.id} onClick={() => go(s.id)} title={s.title} aria-current={on ? "true" : undefined} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6, minHeight: 32, background: on ? C.panelHi : "transparent", border: `1px solid ${on ? C.accent + "66" : C.line}`, color: on ? C.ink : C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: on ? C.accent : C.inkFaint }}>{String(i + 1).padStart(2, "0")}</span>
+          <button key={s.id} onClick={() => go(s.id)} title={s.title} aria-current={on ? "true" : undefined} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6, minHeight: 32, background: on ? C.panelHi : "transparent", border: `1px solid ${on ? C.accent + "66" : C.line}`, color: on ? C.ink : C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap" }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: on ? C.accent : C.inkFaint }}>{String(i + 1).padStart(2, "0")}</span>
             {s.title}
           </button>
         );
@@ -733,7 +733,7 @@ function Segmented({ tabs, active, onChange }) {
           color: active === t.id ? C.ink : C.inkDim,
           border: active === t.id ? `1px solid ${C.line}` : "1px solid transparent",
           borderRadius: 7, padding: "6px 13px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-          fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap",
+          fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap",
         }}>{t.label}</button>
       ))}
     </div>
@@ -747,7 +747,7 @@ function ChipLink({ label, onClick, color }) {
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick && onClick(); } }}
       onMouseEnter={(e) => { e.currentTarget.style.background = c + "26"; e.currentTarget.style.borderColor = c + "99"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = c + "10"; e.currentTarget.style.borderColor = c + "44"; }}
-      style={{ display: "inline-flex", alignItems: "center", gap: 3, minHeight: 24, lineHeight: 1, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: c, border: `1px solid ${c}44`, padding: "0 7px 0 9px", borderRadius: 5, cursor: "pointer", background: c + "10", transition: "background .12s, border-color .12s" }}>
+      style={{ display: "inline-flex", alignItems: "center", gap: 3, minHeight: 24, lineHeight: 1, fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: c, border: `1px solid ${c}44`, padding: "0 7px 0 9px", borderRadius: 5, cursor: "pointer", background: c + "10", transition: "background .12s, border-color .12s" }}>
       {label}<span aria-hidden="true" style={{ fontSize: 8.5, opacity: 0.7, marginTop: -1 }}>↗</span>
     </span>
   );
@@ -800,7 +800,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
         <Segmented tabs={tabs} active={tab} onChange={(id) => { setTab(id); setQ(""); }} />
         {showFilter && (
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter…" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", color: C.ink, fontSize: 13, fontFamily: "'Inter', sans-serif", minWidth: 180 }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter…" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", color: C.ink, fontSize: 13, fontFamily: "'Space Grotesk', sans-serif", minWidth: 180 }} />
         )}
       </div>
 
@@ -809,7 +809,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
           <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.5 }}>
             <span style={{ fontWeight: 600, color: C.ink }}>Have an existing risk register?</span> Connect it to detect gaps against the curated library and draft new entries automatically.
           </div>
-          <button onClick={() => onOpen({ item: { id: "RISK-INTAKE", title: "Connect Your Risk Register" }, kind: "RISK-INTAKE" })} style={{ background: `${C.accent}1A`, border: `1px solid ${C.accent}55`, color: C.accent, borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>Connect register →</button>
+          <button onClick={() => onOpen({ item: { id: "RISK-INTAKE", title: "Connect Your Risk Register" }, kind: "RISK-INTAKE" })} style={{ background: `${C.accent}1A`, border: `1px solid ${C.accent}55`, color: C.accent, borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap" }}>Connect register →</button>
         </div>
       </>)}
       {tab === "risks" && (risks.length > 0 ? (
@@ -1314,7 +1314,7 @@ export default function App() {
       docsBlock = "<h2>Recommended Governance Documents (" + assessment.docCount + ")</h2><p class='dim small'>Recommended document set, not authored content. The writing remains the practitioner's, in the organization's own voice and approval path.</p>" + inner;
     }
 
-    const css = "@media print{@page{margin:18mm}}body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1a2530;max-width:880px;margin:0 auto;padding:32px 28px;line-height:1.5}h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 10px;border-bottom:2px solid #1a2530;padding-bottom:5px}.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}.dim{color:#5a6b78}.small{font-size:12px}.accent{color:#B5790F;font-weight:600}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}th{text-align:left;background:#f1f4f6;padding:7px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#4a5a66;border-bottom:2px solid #d5dde2}td{padding:8px 9px;border-bottom:1px solid #e3e9ed;vertical-align:top}.tag{display:inline-block;font-family:ui-monospace,monospace;font-size:11px;font-weight:600;padding:2px 8px;border:1px solid;border-radius:4px}.pill{display:inline-block;font-size:10px;padding:1px 6px;background:#eef2f4;border-radius:3px;color:#566573}.block{margin:8px 0;padding:10px 12px;background:#f7f9fa;border-left:3px solid #B5790F;border-radius:4px}.block ol{margin:6px 0 0;padding-left:20px}.block li{margin-bottom:3px}.meta{display:flex;gap:24px;flex-wrap:wrap;margin:14px 0 6px;font-size:13px}.meta b{font-size:20px;font-family:ui-monospace,monospace}.banner{background:#fdf6e9;border:1px solid #e8cf9a;border-radius:6px;padding:12px 14px;font-size:12.5px;color:#6b5320;margin-top:26px}.head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;border-bottom:3px solid #1a2530;padding-bottom:12px}";
+    const css = "@media print{@page{margin:18mm}}body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1a2530;max-width:880px;margin:0 auto;padding:32px 28px;line-height:1.5}h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 10px;border-bottom:2px solid #1a2530;padding-bottom:5px}.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}.dim{color:#5a6b78}.small{font-size:12px}.accent{color:#2557B8;font-weight:600}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}th{text-align:left;background:#f1f4f6;padding:7px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#4a5a66;border-bottom:2px solid #d5dde2}td{padding:8px 9px;border-bottom:1px solid #e3e9ed;vertical-align:top}.tag{display:inline-block;font-family:ui-monospace,monospace;font-size:11px;font-weight:600;padding:2px 8px;border:1px solid;border-radius:4px}.pill{display:inline-block;font-size:10px;padding:1px 6px;background:#eef2f4;border-radius:3px;color:#566573}.block{margin:8px 0;padding:10px 12px;background:#f7f9fa;border-left:3px solid #2557B8;border-radius:4px}.block ol{margin:6px 0 0;padding-left:20px}.block li{margin-bottom:3px}.meta{display:flex;gap:24px;flex-wrap:wrap;margin:14px 0 6px;font-size:13px}.meta b{font-size:20px;font-family:ui-monospace,monospace}.banner{background:#edf3fd;border:1px solid #b9cdf0;border-radius:6px;padding:12px 14px;font-size:12.5px;color:#24406e;margin-top:26px}.head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;border-bottom:3px solid #1a2530;padding-bottom:12px}";
 
     const archetypeLabels = assessment.archetypes.map((a) => esc(a.label)).join(", ");
     const frameworkList = assessment.frameworks.map((fw) => esc(fw.name) + " " + esc(fw.version)).join(" · ");
@@ -1329,7 +1329,7 @@ export default function App() {
         const reqMeta = cat.find((r) => r.ref === ref);
         return "<tr><td class='mono'>" + esc(ref) + "</td><td>" + (reqMeta ? "<strong>" + esc(reqMeta.title) + "</strong><br><span class='dim'>" + esc(reqMeta.intent) + "</span>" : "") + "</td><td class='mono'>" + scope[ref].controlIds.map(esc).join(", ") + "</td></tr>";
       }).join("");
-      return "<h3>" + esc(fw.name) + " <span class='pill'>" + esc(fw.version) + "</span>" + (highlighted ? " <span class='tag' style='color:#B5790F;border-color:#B5790F'>Highlighted</span>" : "") + "</h3><table><thead><tr><th>Requirement</th><th>Objective</th><th>Controls</th></tr></thead><tbody>" + rows + "</tbody></table>";
+      return "<h3>" + esc(fw.name) + " <span class='pill'>" + esc(fw.version) + "</span>" + (highlighted ? " <span class='tag' style='color:#2557B8;border-color:#2557B8'>Highlighted</span>" : "") + "</h3><table><thead><tr><th>Requirement</th><th>Objective</th><th>Controls</th></tr></thead><tbody>" + rows + "</tbody></table>";
     }).join("");
     const frameworkScopeBlock = scopeBlock ? "<h2>Framework Scope &amp; Control Crosswalk</h2><p class='dim small'>Requirement-level mapping to the controls that satisfy them. SOX ITGC and PCI DSS 4.0.1 highlighted.</p>" + scopeBlock : "";
 
@@ -1389,7 +1389,7 @@ export default function App() {
   const SCROLL_MT = 118;
 
   return (
-    <div style={{ minHeight: "100vh", background: C.canvas, color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", backgroundImage: `radial-gradient(1200px 620px at 15% -6%, ${C.accent}1F 0%, ${C.canvas} 55%)` }}>
+    <div style={{ minHeight: "100vh", background: C.canvas, color: C.ink, fontFamily: "'Space Grotesk', system-ui, sans-serif", backgroundImage: `radial-gradient(1200px 620px at 15% -6%, ${C.accent}1F 0%, ${C.canvas} 55%)` }}>
       <SourceDrawer item={drawer ? drawer.item : null} kind={drawer ? drawer.kind : null} onClose={() => setDrawer(null)} onNavigate={navigateTo} />
 
       <header style={{ borderBottom: `1px solid ${C.line}`, padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: `${C.canvas}E8`, backdropFilter: "blur(10px)", zIndex: 20 }}>
@@ -1404,7 +1404,7 @@ export default function App() {
                 background: view === v.id ? C.panelHi : "transparent",
                 color: view === v.id ? C.ink : C.inkDim,
                 border: view === v.id ? `1px solid ${C.line}` : "1px solid transparent",
-                borderRadius: 6, padding: "5px 13px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif",
+                borderRadius: 6, padding: "5px 13px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif",
               }}>{v.label}</button>
             ))}
           </div>
@@ -1433,16 +1433,16 @@ export default function App() {
             <span>Runs in-browser</span>
           </div>
           <div style={{ marginTop: 30, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 18 }}>
-            <textarea aria-label="Describe the technology initiative to assess" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }} placeholder="e.g. We are implementing a new third-party SaaS platform that stores customer payment information and integrates with our ERP…" rows={3} style={{ width: "100%", background: "transparent", border: "none", outlineOffset: 4, resize: "vertical", color: C.ink, fontSize: 15.5, lineHeight: 1.55, fontFamily: "'Inter', sans-serif", minHeight: 70 }} />
+            <textarea aria-label="Describe the technology initiative to assess" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }} placeholder="e.g. We are implementing a new third-party SaaS platform that stores customer payment information and integrates with our ERP…" rows={3} style={{ width: "100%", background: "transparent", border: "none", outlineOffset: 4, resize: "vertical", color: C.ink, fontSize: 15.5, lineHeight: 1.55, fontFamily: "'Space Grotesk', sans-serif", minHeight: 70 }} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 12 }}>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                 {SAMPLES.map((s, i) => (
-                  <button key={i} onClick={() => { setInput(s); run(s); }} style={{ background: C.panelHi, border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>
+                  <button key={i} onClick={() => { setInput(s); run(s); }} style={{ background: C.panelHi, border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}>
                     {s.length > 42 ? s.slice(0, 42) + "…" : s}
                   </button>
                 ))}
               </div>
-              <button onClick={() => run()} disabled={!input.trim()} style={{ background: input.trim() ? `linear-gradient(135deg, ${C.accent}, #2E6BE0)` : C.panelHi, color: input.trim() ? "#F5FAFF" : C.inkFaint, border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 600, cursor: input.trim() ? "pointer" : "default", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>
+              <button onClick={() => run()} disabled={!input.trim()} style={{ background: input.trim() ? `linear-gradient(135deg, ${C.accent}, #2E6BE0)` : C.panelHi, color: input.trim() ? "#F5FAFF" : C.inkFaint, border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 600, cursor: input.trim() ? "pointer" : "default", fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap" }}>
                 Generate package →
               </button>
             </div>
@@ -1457,7 +1457,7 @@ export default function App() {
               <p style={{ color: C.inkDim, margin: "0 0 16px", lineHeight: 1.6 }}>The engine couldn't match this to a known system pattern yet. Try naming the system type, the data it handles, or a vendor. Here are some examples:</p>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "center" }}>
                 {SAMPLES.slice(0, 4).map((s, i) => (
-                  <button key={i} onClick={() => { setInput(s); run(s); }} style={{ background: C.panelHi, border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>
+                  <button key={i} onClick={() => { setInput(s); run(s); }} style={{ background: C.panelHi, border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 7, padding: "6px 11px", fontSize: 12, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}>
                     {s.length > 50 ? s.slice(0, 50) + "…" : s}
                   </button>
                 ))}
@@ -1477,7 +1477,7 @@ export default function App() {
                     Matched on {assessment.archetypes.flatMap((a) => a.matched).slice(0, 6).map((m, i) => <Mono key={i} style={{ color: C.ink, marginRight: 8 }}>{m}</Mono>)}
                   </div>
                 </div>
-                <button onClick={downloadSummary} aria-live="polite" style={{ background: exported ? `${C.teal}1F` : C.canvas, border: `1px solid ${exported ? C.teal : C.accent}66`, color: exported ? C.teal : C.accent, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap", transition: "all .15s" }}>
+                <button onClick={downloadSummary} aria-live="polite" style={{ background: exported ? `${C.teal}1F` : C.canvas, border: `1px solid ${exported ? C.teal : C.accent}66`, color: exported ? C.teal : C.accent, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap", transition: "all .15s" }}>
                   {exported ? "Downloaded ✓" : "↓ Export summary"}
                 </button>
               </div>
@@ -1496,9 +1496,9 @@ export default function App() {
 
               <div style={{ background: `${C.teal}0F`, border: `1px solid ${C.teal}40`, borderRadius: 12, padding: "13px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.5, flex: 1, minWidth: 260 }}>
-                  <span style={{ color: C.teal, fontWeight: 600 }}>This package is fully inspectable.</span> Click any <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.ink, border: `1px solid ${C.teal}44`, background: `${C.teal}10`, borderRadius: 4, padding: "1px 5px" }}>ID&#8202;↗</span> (risk, control, or framework) to open its sourced entry. Assembled from a curated library of {Object.keys(RISKS).length} risks · {Object.keys(CONTROLS).length} controls · {Object.keys(FRAMEWORKS).length} frameworks.
+                  <span style={{ color: C.teal, fontWeight: 600 }}>This package is fully inspectable.</span> Click any <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: C.ink, border: `1px solid ${C.teal}44`, background: `${C.teal}10`, borderRadius: 4, padding: "1px 5px" }}>ID&#8202;↗</span> (risk, control, or framework) to open its sourced entry. Assembled from a curated library of {Object.keys(RISKS).length} risks · {Object.keys(CONTROLS).length} controls · {Object.keys(FRAMEWORKS).length} frameworks.
                 </div>
-                <button onClick={() => setView("library")} style={{ background: C.canvas, border: `1px solid ${C.teal}66`, color: C.teal, borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>Explore Library →</button>
+                <button onClick={() => setView("library")} style={{ background: C.canvas, border: `1px solid ${C.teal}66`, color: C.teal, borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", whiteSpace: "nowrap" }}>Explore Library →</button>
               </div>
 
               <Legend />
@@ -1512,7 +1512,7 @@ export default function App() {
                   return (
                     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderLeft: `3px solid ${tone}`, borderRadius: 12, padding: "18px 20px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700, letterSpacing: "0.04em", color: tone, background: `${tone}1A`, border: `1px solid ${tone}55`, borderRadius: 6, padding: "6px 12px" }}>{assessment.recommendation.decision.toUpperCase()}</span>
+                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 700, letterSpacing: "0.04em", color: tone, background: `${tone}1A`, border: `1px solid ${tone}55`, borderRadius: 6, padding: "6px 12px" }}>{assessment.recommendation.decision.toUpperCase()}</span>
                         <span style={{ fontSize: 13, color: C.inkDim, display: "inline-flex", alignItems: "center", gap: 7 }}>BIA overall <Pill color={RATING_COLOR[assessment.biaOverall]} soft={`${RATING_COLOR[assessment.biaOverall]}1A`}>{assessment.biaOverall}</Pill></span>
                       </div>
                       <div style={{ fontSize: 13.5, color: C.inkDim, lineHeight: 1.55, marginBottom: 16 }}>{assessment.recommendation.rationale}</div>
@@ -1851,7 +1851,7 @@ export default function App() {
                 {aiState === "idle" && (
                   <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 22, textAlign: "center" }}>
                     <p style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55, margin: "0 auto 14px", maxWidth: 520 }}>The matrix above is the curated baseline. This step asks the AI layer to surface considerations specific to your exact initiative that a generic library would miss.</p>
-                    <button onClick={deepenWithAI} style={{ background: `${C.violet}1F`, border: `1px solid ${C.violet}55`, color: C.violet, borderRadius: 8, padding: "9px 18px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>Deepen with AI →</button>
+                    <button onClick={deepenWithAI} style={{ background: `${C.violet}1F`, border: `1px solid ${C.violet}55`, color: C.violet, borderRadius: 8, padding: "9px 18px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif" }}>Deepen with AI →</button>
                   </div>
                 )}
                 {aiState === "no-key" && (
