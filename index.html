@@ -18,12 +18,23 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <style>
+      html { background: #0e1419; }
       body { margin: 0; }
     </style>
+    <script>
+      // Pre-paint theme guard: match the saved theme's canvas before React
+      // mounts so switching to Light doesn't flash dark on reload (and vice
+      // versa). Keep the color map in sync with THEMES in src/App.jsx.
+      try {
+        var t = localStorage.getItem("grc-theme");
+        var bg = { light: "#FAF9F6", dark: "#0E1419", nocturne: "#0A0F17" }[t];
+        if (bg) { document.documentElement.style.background = bg; }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

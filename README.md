@@ -25,6 +25,7 @@ Runs entirely in the browser. No backend, no telemetry, no data leaves the page.
 5. **The output package** includes a risk register, control matrix, implementation checklist, audit testing procedures, framework mapping, governance document recommendations, and an optional AI-deepened review.
 6. **Everything traces back** to the library. Click any risk or control to inspect its source entry: statement, owner, frequency, evidence expectations.
 7. **Every assessment is a link.** The engine is deterministic and the input is the state, so each assessment gets a shareable URL (`#a=…`) that reproduces the exact same package — no backend, no account. Recent assessments are kept in the browser (localStorage) and can be reopened from the landing view; implementation-checklist progress is scoped per assessment.
+8. **Three themes, one URL.** A header switcher offers Light, Dark (the original amber), and Nocturne (azure with Space Grotesk / JetBrains Mono type). The choice persists in the browser. Severity colors stay consistent across themes — a High-rated risk looks the same everywhere — and the exported brief's print accent follows the active theme.
 
 ## Key design decisions
 
