@@ -24,6 +24,7 @@ Runs entirely in the browser. No backend, no telemetry, no data leaves the page.
 4. **Residual risk is computed** deterministically: controls reduce inherent exposure by type (preventive > detective > corrective), with tunable weights. The result is a *target* residual assuming controls are implemented — not current-state.
 5. **The output package** includes a risk register, control matrix, implementation checklist, audit testing procedures, framework mapping, governance document recommendations, and an optional AI-deepened review.
 6. **Everything traces back** to the library. Click any risk or control to inspect its source entry: statement, owner, frequency, evidence expectations.
+7. **Every assessment is a link.** The engine is deterministic and the input is the state, so each assessment gets a shareable URL (`#a=…`) that reproduces the exact same package — no backend, no account. Recent assessments are kept in the browser (localStorage) and can be reopened from the landing view; implementation-checklist progress is scoped per assessment.
 
 ## Key design decisions
 
@@ -47,7 +48,7 @@ cp .env.example .env.local
 # Set VITE_AI_PROVIDER (anthropic | openai) and VITE_AI_API_KEY
 ```
 
-`VITE_*` variables are bundled into the client build, so the public deployment ships **without** a key. Anyone running the engine locally can wire in their own.
+`VITE_*` variables are bundled into the client build, so the public deployment ships **without** a key. Anyone running the engine locally can wire in their own. On the hosted site, the "Deepen with AI" section instead offers a paste-your-own-key field: the key is stored only in that browser's localStorage and sent only to the chosen provider, preserving the no-backend promise.
 
 ## Knowledge library coverage
 

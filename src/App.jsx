@@ -87,6 +87,40 @@ function parseFrameworkRef(str) {
   return { fwId: null, ref: s };
 }
 
+/* ---- assessment identity, URL state, history -------------------------------
+ * The engine is deterministic, so the input text IS the assessment: a stable
+ * hash names it (and scopes checklist progress per assessment), and a
+ * base64url copy in the URL hash makes every assessment shareable,
+ * bookmarkable, and reproducible with no backend. */
+function hashText(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+function encodeInput(text) {
+  try { return btoa(String.fromCharCode(...new TextEncoder().encode(text))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); } catch { return ""; }
+}
+function decodeInput(s) {
+  try {
+    const b = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+    return new TextDecoder().decode(Uint8Array.from(b, (ch) => ch.charCodeAt(0)));
+  } catch { return null; }
+}
+function readAssessmentFromURL() {
+  if (typeof window === "undefined") return null;
+  const m = (window.location.hash || "").match(/[#&]a=([^&]+)/);
+  return m ? decodeInput(m[1]) : null;
+}
+function writeAssessmentToURL(text) {
+  if (typeof window === "undefined") return;
+  try { history.replaceState(null, "", text ? "#a=" + encodeInput(text) : window.location.pathname + window.location.search); } catch {}
+}
+const HISTORY_KEY = "grc-history";
+function loadHistory() {
+  try { const v = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+function saveHistory(list) { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 20))); } catch {} }
+
 function buildAssessment(text) {
   const matches = classify(text);
   if (matches.length === 0) return null;
@@ -1132,13 +1166,21 @@ function LibraryBrowser({ onOpen, onNavigate }) {
 
 /* ---- main app ---- */
 export default function App() {
-  const [input, setInput] = useState("");
+  const fromURL = readAssessmentFromURL();
+  const [input, setInput] = useState(fromURL || "");
   const [view, setView] = useState("engine");
-  const [submitted, setSubmitted] = useState("");
+  const [submitted, setSubmitted] = useState(fromURL || "");
   const [drawer, setDrawer] = useState(null);
   const [aiNotes, setAiNotes] = useState(null);
   const [aiState, setAiState] = useState("idle");
   const [exported, setExported] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [historyList, setHistoryList] = useState(loadHistory);
+  const [aiCfg, setAiCfg] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("grc-ai-cfg") || "null"); } catch { return null; }
+  });
+  const [aiKeyDraft, setAiKeyDraft] = useState("");
+  const [aiProviderDraft, setAiProviderDraft] = useState("anthropic");
   const [checkedSteps, setCheckedSteps] = useState(() => {
     try { const v = localStorage.getItem("grc-checklist"); return v ? new Set(JSON.parse(v)) : new Set(); } catch { return new Set(); }
   });
@@ -1146,6 +1188,9 @@ export default function App() {
   const resultRef = useRef(null);
 
   const assessment = useMemo(() => submitted ? buildAssessment(submitted) : null, [submitted]);
+  // Assessment id — scopes checklist progress so one initiative's progress
+  // never bleeds into another's.
+  const aid = submitted ? hashText(submitted) : "";
 
   const toggleStep = (key) => {
     setCheckedSteps((prev) => {
@@ -1181,16 +1226,59 @@ export default function App() {
     setSubmitted(t);
     setAiNotes(null);
     setAiState("idle");
+    writeAssessmentToURL(t);
+    setHistoryList((prev) => {
+      const h = hashText(t);
+      const next = [{ h, text: t, ts: Date.now() }, ...prev.filter((e) => e.h !== h)].slice(0, 20);
+      saveHistory(next);
+      return next;
+    });
+  };
+
+  const removeFromHistory = (h) => {
+    setHistoryList((prev) => {
+      const next = prev.filter((e) => e.h !== h);
+      saveHistory(next);
+      return next;
+    });
+  };
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
+    } catch {}
+  };
+
+  const saveAiKeyAndRun = () => {
+    const key = aiKeyDraft.trim();
+    if (!key) return;
+    const cfg = { provider: aiProviderDraft, key };
+    try { localStorage.setItem("grc-ai-cfg", JSON.stringify(cfg)); } catch {}
+    setAiCfg(cfg);
+    setAiKeyDraft("");
+    deepenWithAI(cfg);
+  };
+
+  const clearAiKey = () => {
+    try { localStorage.removeItem("grc-ai-cfg"); } catch {}
+    setAiCfg(null);
+    setAiState("idle");
   };
 
   useEffect(() => {
     if (assessment && resultRef.current) resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [assessment]);
 
-  const deepenWithAI = async () => {
+  const deepenWithAI = async (cfgOverride) => {
     if (!assessment) return;
-    const provider = (import.meta.env.VITE_AI_PROVIDER || "").toLowerCase();
-    const apiKey = import.meta.env.VITE_AI_API_KEY || import.meta.env.VITE_ANTHROPIC_API_KEY;
+    // Key resolution: build-time env first (local dev), then the key the user
+    // pasted in the browser (hosted). The pasted key lives only in this
+    // browser's localStorage and is sent only to the chosen provider.
+    const cfg = cfgOverride || aiCfg;
+    const provider = (import.meta.env.VITE_AI_PROVIDER || (cfg && cfg.provider) || "").toLowerCase();
+    const apiKey = import.meta.env.VITE_AI_API_KEY || import.meta.env.VITE_ANTHROPIC_API_KEY || (cfg && cfg.key);
     const baseUrl = import.meta.env.VITE_AI_BASE_URL;
     const model = import.meta.env.VITE_AI_MODEL;
     if (!apiKey) { setAiState("no-key"); return; }
@@ -1443,6 +1531,24 @@ export default function App() {
           </div>
         </section>
 
+        {!submitted && historyList.length > 0 && (
+          <section style={{ marginTop: 8, paddingTop: 26 }}>
+            <Mono style={{ fontSize: 12, letterSpacing: "0.1em", color: C.amber }}>RECENT ASSESSMENTS</Mono>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+              {historyList.map((e) => (
+                <div key={e.h} style={{ display: "flex", alignItems: "center", gap: 10, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" }}>
+                  <button onClick={() => { setInput(e.text); run(e.text); }} title="Re-open this assessment" style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", color: C.ink, fontSize: 13.5, lineHeight: 1.45, cursor: "pointer", fontFamily: "'Inter', sans-serif", padding: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {e.text}
+                  </button>
+                  <Mono style={{ fontSize: 10.5, color: C.inkFaint, flexShrink: 0 }}>{new Date(e.ts).toLocaleDateString()}</Mono>
+                  <button onClick={() => removeFromHistory(e.h)} aria-label="Remove from history" style={{ background: "transparent", border: `1px solid ${C.line}`, color: C.inkFaint, borderRadius: 6, width: 24, height: 24, cursor: "pointer", fontSize: 13, lineHeight: 1, flexShrink: 0 }}>×</button>
+                </div>
+              ))}
+            </div>
+            <Mono style={{ fontSize: 11, color: C.inkFaint, marginTop: 10, display: "block" }}>Saved in this browser only. Every assessment is also a shareable link — same input, same package, reproducibly.</Mono>
+          </section>
+        )}
+
         {!submitted && <HowItWorks onExploreLibrary={() => setView("library")} />}
 
         <div ref={resultRef}>
@@ -1471,9 +1577,14 @@ export default function App() {
                     Matched on {assessment.archetypes.flatMap((a) => a.matched).slice(0, 6).map((m, i) => <Mono key={i} style={{ color: C.ink, marginRight: 8 }}>{m}</Mono>)}
                   </div>
                 </div>
-                <button onClick={downloadSummary} aria-live="polite" style={{ background: exported ? `${C.teal}1F` : C.canvas, border: `1px solid ${exported ? C.teal : C.amber}66`, color: exported ? C.teal : C.amber, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap", transition: "all .15s" }}>
-                  {exported ? "Downloaded ✓" : "↓ Export summary"}
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button onClick={copyLink} aria-live="polite" title="This link reproduces the exact same package — the engine is deterministic" style={{ background: linkCopied ? `${C.teal}1F` : C.canvas, border: `1px solid ${linkCopied ? C.teal : C.amber}66`, color: linkCopied ? C.teal : C.amber, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap", transition: "all .15s" }}>
+                    {linkCopied ? "Link copied ✓" : "⧉ Copy link"}
+                  </button>
+                  <button onClick={downloadSummary} aria-live="polite" style={{ background: exported ? `${C.teal}1F` : C.canvas, border: `1px solid ${exported ? C.teal : C.amber}66`, color: exported ? C.teal : C.amber, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap", transition: "all .15s" }}>
+                    {exported ? "Downloaded ✓" : "↓ Export summary"}
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }} className="grid2">
@@ -1609,13 +1720,13 @@ export default function App() {
                 {(() => {
                   const implControls = assessment.controls.filter((c) => c.procedures && c.procedures.implementation);
                   const totalSteps = implControls.reduce((n, c) => n + c.procedures.implementation.length, 0);
-                  const doneSteps = implControls.reduce((n, c) => n + c.procedures.implementation.filter((_, i) => checkedSteps.has(c.control.id + ":" + i)).length, 0);
+                  const doneSteps = implControls.reduce((n, c) => n + c.procedures.implementation.filter((_, i) => checkedSteps.has(aid + "|" + c.control.id + ":" + i)).length, 0);
                   return (<>
                 <SectionLabel n={secNumOf("checklist")} title="Implementation Checklist" hint={"Steps to stand up each recommended control · " + doneSteps + " / " + totalSteps + " complete"} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {implControls.map((c) => {
                     const steps = c.procedures.implementation;
-                    const done = steps.filter((_, i) => checkedSteps.has(c.control.id + ":" + i)).length;
+                    const done = steps.filter((_, i) => checkedSteps.has(aid + "|" + c.control.id + ":" + i)).length;
                     return (
                     <div key={c.control.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "14px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9, flexWrap: "wrap" }}>
@@ -1626,7 +1737,7 @@ export default function App() {
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {steps.map((step, i) => {
-                          const key = c.control.id + ":" + i;
+                          const key = aid + "|" + c.control.id + ":" + i;
                           const on = checkedSteps.has(key);
                           return (
                           <div key={i} role="button" tabIndex={0} onClick={() => toggleStep(key)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleStep(key); } }} style={{ display: "flex", gap: 9, alignItems: "flex-start", cursor: "pointer" }}>
@@ -1845,19 +1956,40 @@ export default function App() {
                 {aiState === "idle" && (
                   <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 22, textAlign: "center" }}>
                     <p style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55, margin: "0 auto 14px", maxWidth: 520 }}>The matrix above is the curated baseline. This step asks the AI layer to surface considerations specific to your exact initiative that a generic library would miss.</p>
-                    <button onClick={deepenWithAI} style={{ background: `${C.violet}1F`, border: `1px solid ${C.violet}55`, color: C.violet, borderRadius: 8, padding: "9px 18px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>Deepen with AI →</button>
+                    <button onClick={() => deepenWithAI()} style={{ background: `${C.violet}1F`, border: `1px solid ${C.violet}55`, color: C.violet, borderRadius: 8, padding: "9px 18px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>Deepen with AI →</button>
+                    {aiCfg && (
+                      <div style={{ marginTop: 12, fontSize: 11.5, color: C.inkFaint }}>
+                        Using the {aiCfg.provider === "anthropic" ? "Anthropic" : "OpenAI-compatible"} key stored in this browser · <span role="button" tabIndex={0} onClick={clearAiKey} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); clearAiKey(); } }} style={{ color: C.violet, cursor: "pointer", textDecorationLine: "underline", textDecorationColor: `${C.violet}55`, textUnderlineOffset: 2 }}>clear key</span>
+                      </div>
+                    )}
                   </div>
                 )}
                 {aiState === "no-key" && (
-                  <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, textAlign: "center" }}>
-                    <p style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55, margin: 0 }}>The AI layer requires an API key. Copy <Mono style={{ color: C.ink }}>.env.example</Mono> to <Mono style={{ color: C.ink }}>.env</Mono>, set your provider and API key, then restart the dev server. The curated baseline above stands on its own; this feature is additive.</p>
+                  <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22 }}>
+                    <p style={{ color: C.inkDim, fontSize: 13.5, lineHeight: 1.55, margin: "0 0 14px", maxWidth: 560 }}>The AI layer needs an API key. Paste your own below — it stays in this browser (localStorage) and is sent only to the provider you choose, keeping the no-backend promise. The curated baseline above stands on its own; this layer is additive.</p>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ display: "inline-flex", background: C.panelHi, border: `1px solid ${C.line}`, borderRadius: 8, padding: 3, gap: 3 }}>
+                        {[{ id: "anthropic", label: "Anthropic" }, { id: "openai", label: "OpenAI-compatible" }].map((p) => (
+                          <button key={p.id} onClick={() => setAiProviderDraft(p.id)} style={{ background: aiProviderDraft === p.id ? C.panel : "transparent", color: aiProviderDraft === p.id ? C.ink : C.inkDim, border: aiProviderDraft === p.id ? `1px solid ${C.line}` : "1px solid transparent", borderRadius: 6, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif" }}>{p.label}</button>
+                        ))}
+                      </div>
+                      <input type="password" value={aiKeyDraft} onChange={(e) => setAiKeyDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveAiKeyAndRun(); }} placeholder="API key (never leaves your browser except to the provider)" aria-label="AI provider API key" style={{ flex: 1, minWidth: 220, background: C.panelHi, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", color: C.ink, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                      <button onClick={saveAiKeyAndRun} disabled={!aiKeyDraft.trim()} style={{ background: aiKeyDraft.trim() ? `${C.violet}1F` : "transparent", border: `1px solid ${aiKeyDraft.trim() ? C.violet + "55" : C.line}`, color: aiKeyDraft.trim() ? C.violet : C.inkFaint, borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: aiKeyDraft.trim() ? "pointer" : "default", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>Save &amp; run →</button>
+                    </div>
+                    <p style={{ color: C.inkFaint, fontSize: 11.5, lineHeight: 1.5, margin: "12px 0 0" }}>Running locally instead? Copy <Mono style={{ color: C.inkDim }}>.env.example</Mono> to <Mono style={{ color: C.inkDim }}>.env.local</Mono> and the key never touches the browser at all.</p>
                   </div>
                 )}
                 {aiState === "loading" && (
                   <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, color: C.inkDim, fontSize: 13.5 }}><Mono style={{ color: C.violet }}>Analyzing initiative-specific exposure…</Mono></div>
                 )}
                 {aiState === "error" && (
-                  <div style={{ background: C.redSoft, border: `1px solid ${C.red}40`, borderRadius: 12, padding: 18, color: C.inkDim, fontSize: 13.5 }}>The AI layer could not be reached. The curated baseline above stands on its own. That is the point of grounding the product in a real library rather than the model alone.</div>
+                  <div style={{ background: C.redSoft, border: `1px solid ${C.red}40`, borderRadius: 12, padding: 18, color: C.inkDim, fontSize: 13.5, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                    <span style={{ flex: 1, minWidth: 260 }}>The AI layer could not be reached. The curated baseline above stands on its own. That is the point of grounding the product in a real library rather than the model alone.</span>
+                    <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                      <button onClick={() => deepenWithAI()} style={{ background: "transparent", border: `1px solid ${C.red}55`, color: C.red, borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>Try again</button>
+                      {aiCfg && <button onClick={() => { clearAiKey(); setAiState("no-key"); }} style={{ background: "transparent", border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter', sans-serif", whiteSpace: "nowrap" }}>Use a different key</button>}
+                    </div>
+                  </div>
                 )}
                 {aiState === "done" && aiNotes && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
