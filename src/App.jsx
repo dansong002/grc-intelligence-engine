@@ -1311,6 +1311,18 @@ export default function App() {
     } catch {}
   };
 
+  // Return to the empty landing view (where Recent assessments lives). Also
+  // clears the shared-assessment hash so a reload starts fresh.
+  const goHome = () => {
+    setSubmitted("");
+    setInput("");
+    setView("engine");
+    setAiNotes(null);
+    setAiState("idle");
+    writeAssessmentToURL("");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
+  };
+
   const saveAiKeyAndRun = () => {
     const key = aiKeyDraft.trim();
     if (!key) return;
@@ -1543,10 +1555,10 @@ export default function App() {
       <SourceDrawer item={drawer ? drawer.item : null} kind={drawer ? drawer.kind : null} onClose={() => setDrawer(null)} onNavigate={navigateTo} />
 
       <header style={{ borderBottom: `1px solid ${C.line}`, padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: `${C.canvas}E8`, backdropFilter: "blur(10px)", zIndex: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+        <button onClick={goHome} title="New assessment — back to start" aria-label="New assessment — back to start" style={{ display: "flex", alignItems: "center", gap: 11, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.ink, fontFamily: C.ui }}>
           <BrandMark size={26} />
           <div style={{ fontWeight: 600, fontSize: 15, letterSpacing: "-0.01em" }}>GRC Intelligence Engine</div>
-        </div>
+        </button>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ display: "inline-flex", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 3, gap: 2 }} role="group" aria-label="Color theme">
             {THEME_ORDER.map((id) => {
