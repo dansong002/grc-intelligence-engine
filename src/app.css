@@ -1,13 +1,15 @@
 * { box-sizing: border-box; }
-::selection { background: #F5A623; color: #1a1206; }
-textarea::placeholder { color: #7E8E9E; }
+/* Theme-reactive tokens: set by applyTheme() in App.jsx; fallbacks match the
+ * default dark theme so the first paint is correct before React mounts. */
+::selection { background: var(--t-accent, #F5A623); color: var(--t-on-accent, #1a1206); }
+textarea::placeholder { color: var(--t-ink-faint, #7E8E9E); }
 @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr !important; } }
-*:focus-visible { outline: 2px solid #F5A623; outline-offset: 2px; }
+*:focus-visible { outline: 2px solid var(--t-accent, #F5A623); outline-offset: 2px; }
 
 /* Drill-in affordance: chevron nudges + warms when its card is hovered/focused. */
 .drill-affordance { transition: transform .15s ease, color .15s ease; }
 [data-card]:hover .drill-affordance,
-[data-card]:focus-visible .drill-affordance { transform: translateX(3px); color: #F5A623; }
+[data-card]:focus-visible .drill-affordance { transform: translateX(3px); color: var(--t-accent, #F5A623); }
 
 /* Respect users who ask for less motion (WCAG 2.3.3 / skill rule: reduced-motion). */
 @media (prefers-reduced-motion: reduce) {
