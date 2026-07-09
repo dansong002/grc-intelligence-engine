@@ -19,13 +19,14 @@ Runs entirely in the browser. No backend, no telemetry, no data leaves the page.
 ## How it works
 
 1. **Describe an initiative** in plain language — "we're adding a new payment vendor," "a tornado knocked our stores offline," "we're deploying an AI chatbot."
-2. **The engine classifies** the initiative into one or more system archetypes using keyword signal matching (no ML).
+2. **The engine classifies** the initiative into one or more system archetypes using keyword signal matching (no ML). The classification is editable — remove a wrong archetype or add a missing one from the full set, and the package recomputes instantly. An optional **industry profile** (Retail & Fuel, Banking, Crypto, Manufacturing & Defense, Healthcare, or General) weights business impact and pulls the vertical's frameworks into scope; it persists across runs.
 3. **Archetypes activate risks** from the curated library. Each risk carries an inherent rating, mapped controls, and framework references.
 4. **Residual risk is computed** deterministically: controls reduce inherent exposure by type (preventive > detective > corrective), with tunable weights. The result is a *target* residual assuming controls are implemented — not current-state.
 5. **The output package** includes a risk register, control matrix, implementation checklist, audit testing procedures, framework mapping, governance document recommendations, and an optional AI-deepened review.
 6. **Everything traces back** to the library. Click any risk or control to inspect its source entry: statement, owner, frequency, evidence expectations.
 7. **Every assessment is a link.** The engine is deterministic and the input is the state, so each assessment gets a shareable URL (`#a=…`) that reproduces the exact same package — no backend, no account. Recent assessments are kept in the browser (localStorage) and can be reopened from the landing view; implementation-checklist progress is scoped per assessment.
 8. **Three themes, one URL.** A header switcher offers Light, Dark (the original amber), and Nocturne (azure with Space Grotesk / JetBrains Mono type). The choice persists in the browser. Severity colors stay consistent across themes — a High-rated risk looks the same everywhere — and the exported brief's print accent follows the active theme.
+9. **Exports for the systems you already use.** Beyond the self-contained HTML brief, the risk register, control matrix, and implementation checklist each export to CSV — ready to paste into Excel, ServiceNow, Archer, or AuditBoard. Any source entry is also reachable by drilling through the graph, with a back stack so risk → control → framework navigation is reversible.
 
 ## Key design decisions
 
