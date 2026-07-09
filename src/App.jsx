@@ -243,13 +243,31 @@ function buildAssessment(text, opts) {
     .filter((a) => !activeMatches.some((m) => m.archetype.id === a.id))
     .map((a) => ({ archetype: a, score: 0, matched: [] }));
   const active = [...activeMatches, ...added];
+  // An archetype match (auto or manual) is required to classify; the industry
+  // profile augments that scope, it does not classify on its own.
   if (active.length === 0) return null;
   const riskIds = [];
   active.forEach((m) => m.archetype.risks.forEach((r) => { if (!riskIds.includes(r)) riskIds.push(r); }));
+  const archetypeRiskIds = new Set(riskIds);
+
+  // Industry profile activates its own curated risks (from the same library),
+  // elevating vertical-critical exposure a generic archetype pass would miss.
+  const industryRiskIds = new Set();
+  if (industry && Array.isArray(industry.risks)) {
+    industry.risks.forEach((id) => {
+      if (!RISKS[id]) return;
+      industryRiskIds.add(id);
+      if (!riskIds.includes(id)) riskIds.push(id);
+    });
+  }
+  const industryOnlyCount = [...industryRiskIds].filter((id) => !archetypeRiskIds.has(id)).length;
 
   const risks = riskIds.map((id) => RISKS[id]).filter(Boolean).map((r) => {
     const mapped = r.controls.map((cid) => CONTROLS[cid]).filter(Boolean);
-    return { ...r, residual: computeResidual(r.inherent, mapped) };
+    // Provenance: was this risk in scope from the initiative's archetypes, or
+    // pulled in by the industry profile? Keeps every line traceable.
+    const via = archetypeRiskIds.has(r.id) ? "archetype" : "industry";
+    return { ...r, residual: computeResidual(r.inherent, mapped), via };
   });
 
   const controlMap = {};
@@ -284,11 +302,10 @@ function buildAssessment(text, opts) {
       });
     });
   });
-  // Industry overlay: pull the vertical's framework obligations into scope,
-  // even if no in-scope risk or control cited them.
-  if (industry && Array.isArray(industry.frameworkOverlays)) {
-    industry.frameworkOverlays.forEach((fid) => { if (FRAMEWORKS[fid]) fw.add(fid); });
-  }
+  // Frameworks surface only from in-scope risks and controls (above), so every
+  // implicated framework is backed by a real, drill-through source — the
+  // industry profile influences this set through the risks it activates, not
+  // by injecting unsourced framework chips.
   // Frameworks implicated, ordered with the two highlighted standards first.
   const FW_PRIORITY = { "SOX-ITGC": 0, "PCI-DSS": 1 };
   const frameworkIds = Array.from(fw).filter((id) => FRAMEWORKS[id]).sort((a, b) => {
@@ -382,6 +399,7 @@ function buildAssessment(text, opts) {
     archetypes: active.map((a) => ({ ...a.archetype, matched: a.matched, manual: a.score === 0 && a.matched.length === 0 })),
     activeArchetypeIds: active.map((a) => a.archetype.id),
     industry: industry ? { id: industry.id, label: industry.label } : null,
+    industryOnlyCount,
     manualTouched,
     risks, controls, docsByTier, docCount, convergence,
     frameworks: frameworkIds.map((id) => FRAMEWORKS[id]),
@@ -1234,7 +1252,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
               <Pill color={C.accent} soft={`${C.accent}1A`}>{INDUSTRIES.length} profiles</Pill>
             </div>
             <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.55 }}>
-              The engine adapts to different verticals through industry profiles. Each profile shapes which frameworks apply, how business impact is weighted, and which processes are most critical. Retail/Fuel carries a deep treatment; others are lighter showcases.
+              The engine adapts to different verticals through industry profiles. Selecting one activates the vertical's elevated risks (from this same library), weights business impact toward what matters most to the sector, and — through those risks and their controls — brings the sector's frameworks into scope. Pick a profile beside the intake box; it applies to every assessment until changed.
             </div>
           </div>
           {INDUSTRIES.filter((ind) => !ql || (ind.label + " " + ind.description + " " + ind.criticalProcesses.map((p) => p.name).join(" ")).toLowerCase().includes(ql)).map((ind) => {
@@ -1257,6 +1275,14 @@ function LibraryBrowser({ onOpen, onNavigate }) {
 
                 {isExpanded && (
                   <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+                    {Array.isArray(ind.risks) && ind.risks.length > 0 && (
+                      <>
+                        <Mono style={{ fontSize: 10, color: C.violet, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>RISKS THIS PROFILE ELEVATES ({ind.risks.filter((rid) => RISKS[rid]).length})</Mono>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+                          {ind.risks.filter((rid) => RISKS[rid]).map((rid) => <ChipLink key={rid} label={rid} color={RATING_COLOR[RISKS[rid].inherent]} onClick={() => onNavigate && onNavigate(rid, "RISK")} />)}
+                        </div>
+                      </>
+                    )}
                     <Mono style={{ fontSize: 10, color: C.accent, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>CRITICAL BUSINESS PROCESSES</Mono>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
                       {ind.criticalProcesses.map((p) => (
@@ -1856,7 +1882,7 @@ export default function App() {
                     ) : (
                       <span style={{ color: C.inkFaint }}>Classification set manually. Adjust the archetypes above to reshape the package.</span>
                     )}
-                    {assessment.industry && <span style={{ marginLeft: 4 }}> · Industry profile: <Mono style={{ color: C.ink }}>{assessment.industry.label}</Mono></span>}
+                    {assessment.industry && <span style={{ marginLeft: 4 }}> · Industry profile: <Mono style={{ color: C.ink }}>{assessment.industry.label}</Mono>{assessment.industryOnlyCount > 0 && <span style={{ color: C.inkFaint }}> (+{assessment.industryOnlyCount} vertical-specific risk{assessment.industryOnlyCount === 1 ? "" : "s"})</span>}</span>}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1960,7 +1986,10 @@ export default function App() {
                     {assessment.risks.map((r) => (
                       <Card key={r.id} onClick={() => openDrawer({ item: r, kind: "RISK" })}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                          <Mono style={{ fontSize: 11, color: C.inkFaint, fontVariantNumeric: "tabular-nums" }}>{r.id}</Mono>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                            <Mono style={{ fontSize: 11, color: C.inkFaint, fontVariantNumeric: "tabular-nums" }}>{r.id}</Mono>
+                            {r.via === "industry" && assessment.industry && <span title={"In scope via the " + assessment.industry.label + " industry profile"} style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, letterSpacing: "0.04em", color: C.violet, border: `1px solid ${C.violet}55`, background: `${C.violet}14`, borderRadius: 4, padding: "1px 5px" }}>INDUSTRY</span>}
+                          </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <Pill color={RATING_COLOR[r.inherent]} soft={`${RATING_COLOR[r.inherent]}1A`}><SevIcon level={r.inherent} />{r.inherent}</Pill>
                             <span aria-hidden="true" style={{ color: C.inkFaint, fontSize: 12 }}>{"→"}</span>
