@@ -1999,6 +1999,9 @@ export const INDUSTRIES = [
     ],
     foundations: ["Cyber", "Infrastructure", "Governance", "Compliance"],
     frameworkOverlays: ["PCI-DSS", "SOX-ITGC", "CCPA-CPRA", "NIST-CSF"],
+    // Risks this vertical elevates regardless of the initiative described.
+    // These activate the same curated risk→control→evidence chain as archetypes.
+    risks: ["RSK-IND-POS-001", "RSK-IND-FUL-001", "RSK-IND-DIS-001", "RSK-IND-P2P-001", "RSK-IND-PAY-001", "RSK-CMP-PCI-001", "RSK-RES-SITE-001", "RSK-RES-PWR-001"],
     biaBias: { financial: "High", operational: "Critical", regulatory: "High" },
     sampleInitiatives: [
       "Migrating 400 stores to a cloud-hosted POS platform with integrated fuel dispenser controls",
@@ -2016,6 +2019,7 @@ export const INDUSTRIES = [
     ],
     foundations: ["Cyber", "Infrastructure", "Governance", "Compliance"],
     frameworkOverlays: ["SOX-ITGC", "GLBA", "FFIEC", "PCI-DSS", "NIST-CSF"],
+    risks: ["RSK-CMP-SOX-001", "RSK-CMP-OBL-001", "RSK-CMP-BRN-001", "RSK-CYB-IDM-001", "RSK-CYB-MAL-001", "RSK-TPR-SUP-001", "RSK-DSP-ENC-001", "RSK-RES-DRP-001"],
     biaBias: { financial: "Critical", regulatory: "Critical", reputational: "High" },
     sampleInitiatives: [
       "Replacing the core banking platform with a cloud-native ledger and real-time payments engine",
@@ -2032,6 +2036,7 @@ export const INDUSTRIES = [
     ],
     foundations: ["Cyber", "Infrastructure", "Governance", "Compliance"],
     frameworkOverlays: ["MICA", "SOX-ITGC", "NIST-CSF", "GDPR"],
+    risks: ["RSK-CYB-IDM-002", "RSK-DSP-ENC-001", "RSK-CMP-OBL-001", "RSK-CMP-BRN-001", "RSK-TPR-SUP-001", "RSK-CYB-MAL-001", "RSK-CYB-IRP-001"],
     biaBias: { financial: "Critical", operational: "Critical", regulatory: "High" },
     sampleInitiatives: [
       "Launching a regulated crypto custody service with institutional-grade key management",
@@ -2048,6 +2053,7 @@ export const INDUSTRIES = [
     ],
     foundations: ["Cyber", "Infrastructure", "Governance", "Compliance"],
     frameworkOverlays: ["CMMC", "NIST-800171", "NIST-80053", "ISO-27001", "NIST-CSF"],
+    risks: ["RSK-CYB-CFG-001", "RSK-CYB-VUL-001", "RSK-CYB-NET-001", "RSK-CYB-PHY-001", "RSK-CYB-IDM-001", "RSK-TPR-SUP-001", "RSK-CYB-SDL-001", "RSK-CYB-IRP-001"],
     biaBias: { operational: "Critical", safety: "Critical", regulatory: "High" },
     sampleInitiatives: [
       "Segmenting OT networks from IT and achieving CMMC Level 2 certification for a DoD contract",
@@ -2065,6 +2071,7 @@ export const INDUSTRIES = [
     ],
     foundations: ["Cyber", "Infrastructure", "Governance", "Compliance"],
     frameworkOverlays: ["HIPAA", "NIST-CSF", "ISO-27001", "GDPR"],
+    risks: ["RSK-DSP-PRI-001", "RSK-DSP-ENC-001", "RSK-CMP-BRN-001", "RSK-CYB-IDM-001", "RSK-CYB-MAL-001", "RSK-DSP-RET-001", "RSK-TPR-SUP-001", "RSK-CYB-IRP-001"],
     biaBias: { safety: "Critical", regulatory: "Critical", reputational: "High" },
     sampleInitiatives: [
       "Migrating the EHR to a HIPAA-compliant cloud environment with zero-downtime failover",
@@ -2081,6 +2088,7 @@ export const INDUSTRIES = [
     ],
     foundations: ["Cyber", "Infrastructure", "Governance", "Compliance"],
     frameworkOverlays: ["NIST-CSF", "ISO-27001", "GDPR", "CCPA-CPRA", "COBIT"],
+    risks: ["RSK-CMP-GOV-001", "RSK-CMP-OBL-001", "RSK-CYB-IDM-001", "RSK-DSP-PRI-001", "RSK-TPR-SUP-001"],
     biaBias: { operational: "High", regulatory: "Medium", financial: "Medium" },
     sampleInitiatives: [
       "Implementing a zero-trust architecture across a hybrid cloud environment",

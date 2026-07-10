@@ -170,26 +170,104 @@ function readAssessmentFromURL() {
   const m = (window.location.hash || "").match(/[#&]a=([^&]+)/);
   return m ? decodeInput(m[1]) : null;
 }
-function writeAssessmentToURL(text) {
-  if (typeof window === "undefined") return;
-  try { history.replaceState(null, "", text ? "#a=" + encodeInput(text) : window.location.pathname + window.location.search); } catch {}
+function overridesActive(o) {
+  return !!(o && ((o.add && o.add.length) || (o.remove && o.remove.length) || o.industry));
 }
+function readOverridesFromURL() {
+  if (typeof window === "undefined") return null;
+  const m = (window.location.hash || "").match(/[#&]o=([^&]+)/);
+  if (!m) return null;
+  try {
+    const o = JSON.parse(decodeInput(m[1]) || "{}");
+    return { add: o.add || [], remove: o.remove || [], industry: o.industry || null };
+  } catch { return null; }
+}
+// The assessment (input) and any tuning (overrides) both live in the URL hash
+// so a shared link reproduces the exact package the sender saw.
+function writeStateToURL(text, overrides) {
+  if (typeof window === "undefined") return;
+  let hash = text ? "#a=" + encodeInput(text) : "";
+  if (overridesActive(overrides)) {
+    const enc = encodeInput(JSON.stringify({ add: overrides.add, remove: overrides.remove, industry: overrides.industry }));
+    if (enc) hash += (hash ? "&" : "#") + "o=" + enc;
+  }
+  try { history.replaceState(null, "", hash || window.location.pathname + window.location.search); } catch {}
+}
+function writeAssessmentToURL(text) { writeStateToURL(text, null); }
 const HISTORY_KEY = "grc-history";
 function loadHistory() {
   try { const v = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 function saveHistory(list) { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 20))); } catch {} }
+// Industry is a "set once, applies to every run" personalization, so it also
+// persists on its own key (independent of any single assessment's URL).
+function loadIndustry() { try { return localStorage.getItem("grc-industry") || null; } catch { return null; } }
 
-function buildAssessment(text) {
+// CSV export — the register/matrix/checklist as rows a practitioner can pull
+// straight into Excel, ServiceNow, Archer, or AuditBoard.
+function toCSV(rows) {
+  return rows.map((r) => r.map((cell) => {
+    const s = String(cell == null ? "" : cell);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }).join(",")).join("\r\n");
+}
+function downloadTextFile(name, mime, content) {
+  if (typeof document === "undefined") return;
+  const blob = new Blob(["﻿" + content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Maps the industry profiles' BIA vocabulary onto the six BIA_DIMENSIONS ids.
+const BIA_BIAS_KEY = { financial: "revenue", reputational: "reputation", safety: "operational" };
+
+function buildAssessment(text, opts) {
+  opts = opts || {};
+  const add = opts.add || [];
+  const remove = opts.remove || [];
+  const industry = opts.industry ? INDUSTRIES.find((i) => i.id === opts.industry) : null;
+
   const matches = classify(text);
-  if (matches.length === 0) return null;
-  const active = matches.slice(0, 2);
+  const manualTouched = add.length > 0 || remove.length > 0;
+  // Auto classification (top 2), minus anything the practitioner removed; when
+  // they have manually adjusted, drop the top-2 cap so all matches can show.
+  let activeMatches = matches.filter((m) => !remove.includes(m.archetype.id));
+  if (!manualTouched) activeMatches = activeMatches.slice(0, 2);
+  // Archetypes the practitioner added by hand (score 0, no matched signals).
+  const added = add
+    .map((id) => ARCHETYPES.find((a) => a.id === id))
+    .filter(Boolean)
+    .filter((a) => !activeMatches.some((m) => m.archetype.id === a.id))
+    .map((a) => ({ archetype: a, score: 0, matched: [] }));
+  const active = [...activeMatches, ...added];
+  // An archetype match (auto or manual) is required to classify; the industry
+  // profile augments that scope, it does not classify on its own.
+  if (active.length === 0) return null;
   const riskIds = [];
   active.forEach((m) => m.archetype.risks.forEach((r) => { if (!riskIds.includes(r)) riskIds.push(r); }));
+  const archetypeRiskIds = new Set(riskIds);
+
+  // Industry profile activates its own curated risks (from the same library),
+  // elevating vertical-critical exposure a generic archetype pass would miss.
+  const industryRiskIds = new Set();
+  if (industry && Array.isArray(industry.risks)) {
+    industry.risks.forEach((id) => {
+      if (!RISKS[id]) return;
+      industryRiskIds.add(id);
+      if (!riskIds.includes(id)) riskIds.push(id);
+    });
+  }
+  const industryOnlyCount = [...industryRiskIds].filter((id) => !archetypeRiskIds.has(id)).length;
 
   const risks = riskIds.map((id) => RISKS[id]).filter(Boolean).map((r) => {
     const mapped = r.controls.map((cid) => CONTROLS[cid]).filter(Boolean);
-    return { ...r, residual: computeResidual(r.inherent, mapped) };
+    // Provenance: was this risk in scope from the initiative's archetypes, or
+    // pulled in by the industry profile? Keeps every line traceable.
+    const via = archetypeRiskIds.has(r.id) ? "archetype" : "industry";
+    return { ...r, residual: computeResidual(r.inherent, mapped), via };
   });
 
   const controlMap = {};
@@ -224,6 +302,10 @@ function buildAssessment(text) {
       });
     });
   });
+  // Frameworks surface only from in-scope risks and controls (above), so every
+  // implicated framework is backed by a real, drill-through source — the
+  // industry profile influences this set through the risks it activates, not
+  // by injecting unsourced framework chips.
   // Frameworks implicated, ordered with the two highlighted standards first.
   const FW_PRIORITY = { "SOX-ITGC": 0, "PCI-DSS": 1 };
   const frameworkIds = Array.from(fw).filter((id) => FRAMEWORKS[id]).sort((a, b) => {
@@ -254,7 +336,16 @@ function buildAssessment(text) {
 
   const convergence = CONVERGENCE.filter((c) => riskIds.includes(c.spineRisk));
 
-  // Business Impact Analysis — worst case per dimension across active archetypes.
+  // Industry BIA bias, mapped onto our dimension ids (worst case per dimension).
+  const industryBias = {};
+  if (industry && industry.biaBias) {
+    Object.entries(industry.biaBias).forEach(([k, rating]) => {
+      const dimId = BIA_BIAS_KEY[k] || k;
+      if (!industryBias[dimId] || RATING_VALUE[rating] > RATING_VALUE[industryBias[dimId]]) industryBias[dimId] = rating;
+    });
+  }
+  // Business Impact Analysis — worst case per dimension across active
+  // archetypes, then raised where the industry profile weights it higher.
   const bia = BIA_DIMENSIONS.map((dim) => {
     let best = null;
     active.forEach((m) => {
@@ -264,7 +355,14 @@ function buildAssessment(text) {
         best = cell;
       }
     });
-    return { id: dim.id, label: dim.label, rating: best ? best.rating : "Low", note: best ? best.note : "" };
+    let rating = best ? best.rating : "Low";
+    let note = best ? best.note : "";
+    const bias = industryBias[dim.id];
+    if (bias && RATING_VALUE[bias] > RATING_VALUE[rating]) {
+      rating = bias;
+      note = (note ? note + " " : "") + "Raised by the " + industry.label + " profile.";
+    }
+    return { id: dim.id, label: dim.label, rating, note };
   });
   const biaOverall = VALUE_RATING[Math.max(1, ...bia.map((d) => RATING_VALUE[d.rating]))];
 
@@ -298,7 +396,11 @@ function buildAssessment(text) {
   }
 
   return {
-    archetypes: active.map((a) => ({ ...a.archetype, matched: a.matched })),
+    archetypes: active.map((a) => ({ ...a.archetype, matched: a.matched, manual: a.score === 0 && a.matched.length === 0 })),
+    activeArchetypeIds: active.map((a) => a.archetype.id),
+    industry: industry ? { id: industry.id, label: industry.label } : null,
+    industryOnlyCount,
+    manualTouched,
     risks, controls, docsByTier, docCount, convergence,
     frameworks: frameworkIds.map((id) => FRAMEWORKS[id]),
     frameworkIds,
@@ -359,7 +461,7 @@ function Field({ label, children }) {
   );
 }
 
-function SourceDrawer({ item, kind, onClose, onNavigate }) {
+function SourceDrawer({ item, kind, onClose, onNavigate, onBack, backLabel }) {
   const closeRef = useRef(null);
   useEffect(() => {
     if (!item) return;
@@ -379,9 +481,13 @@ function SourceDrawer({ item, kind, onClose, onNavigate }) {
   return (
     <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", justifyContent: "flex-end", background: "rgba(6,10,13,0.6)", backdropFilter: "blur(2px)" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "min(480px, 92vw)", height: "100%", background: C.panel, borderLeft: `1px solid ${C.line}`, padding: "28px 26px", overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
-          <Pill color={C.inkFaint} soft="transparent">LIBRARY SOURCE · {kind}</Pill>
-          <button ref={closeRef} onClick={onClose} aria-label="Close panel" style={{ background: "transparent", border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 16 }}>×</button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22, gap: 10 }}>
+          {onBack ? (
+            <button onClick={onBack} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 6, padding: "5px 10px", minHeight: 30, cursor: "pointer", fontSize: 11.5, fontWeight: 600, fontFamily: C.mono, maxWidth: "70%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>‹ {backLabel}</button>
+          ) : (
+            <Pill color={C.inkFaint} soft="transparent">LIBRARY SOURCE · {kind}</Pill>
+          )}
+          <button ref={closeRef} onClick={onClose} aria-label="Close panel" style={{ background: "transparent", border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>×</button>
         </div>
         <Mono style={{ fontSize: 13, color: C.accent, fontWeight: 600 }}>{item.id}</Mono>
         <h3 style={{ color: C.ink, fontSize: 18, fontWeight: 600, margin: "8px 0 16px", lineHeight: 1.35 }}>{item.title}</h3>
@@ -1146,7 +1252,7 @@ function LibraryBrowser({ onOpen, onNavigate }) {
               <Pill color={C.accent} soft={`${C.accent}1A`}>{INDUSTRIES.length} profiles</Pill>
             </div>
             <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.55 }}>
-              The engine adapts to different verticals through industry profiles. Each profile shapes which frameworks apply, how business impact is weighted, and which processes are most critical. Retail/Fuel carries a deep treatment; others are lighter showcases.
+              The engine adapts to different verticals through industry profiles. Selecting one activates the vertical's elevated risks (from this same library), weights business impact toward what matters most to the sector, and — through those risks and their controls — brings the sector's frameworks into scope. Pick a profile beside the intake box; it applies to every assessment until changed.
             </div>
           </div>
           {INDUSTRIES.filter((ind) => !ql || (ind.label + " " + ind.description + " " + ind.criticalProcesses.map((p) => p.name).join(" ")).toLowerCase().includes(ql)).map((ind) => {
@@ -1169,6 +1275,14 @@ function LibraryBrowser({ onOpen, onNavigate }) {
 
                 {isExpanded && (
                   <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+                    {Array.isArray(ind.risks) && ind.risks.length > 0 && (
+                      <>
+                        <Mono style={{ fontSize: 10, color: C.violet, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>RISKS THIS PROFILE ELEVATES ({ind.risks.filter((rid) => RISKS[rid]).length})</Mono>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+                          {ind.risks.filter((rid) => RISKS[rid]).map((rid) => <ChipLink key={rid} label={rid} color={RATING_COLOR[RISKS[rid].inherent]} onClick={() => onNavigate && onNavigate(rid, "RISK")} />)}
+                        </div>
+                      </>
+                    )}
                     <Mono style={{ fontSize: 10, color: C.accent, letterSpacing: "0.06em", marginBottom: 8, display: "block" }}>CRITICAL BUSINESS PROCESSES</Mono>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
                       {ind.criticalProcesses.map((p) => (
@@ -1226,10 +1340,19 @@ function LibraryBrowser({ onOpen, onNavigate }) {
 /* ---- main app ---- */
 export default function App() {
   const fromURL = readAssessmentFromURL();
+  const urlOverrides = readOverridesFromURL();
   const [input, setInput] = useState(fromURL || "");
   const [view, setView] = useState("engine");
   const [submitted, setSubmitted] = useState(fromURL || "");
+  const [overrides, setOverrides] = useState(() => ({
+    add: (urlOverrides && urlOverrides.add) || [],
+    remove: (urlOverrides && urlOverrides.remove) || [],
+    // A shared link (#a= present) must reproduce exactly what the sender saw,
+    // so the saved industry only seeds a fresh session, never a shared one.
+    industry: (urlOverrides && urlOverrides.industry) || (fromURL ? null : loadIndustry()),
+  }));
   const [drawer, setDrawer] = useState(null);
+  const [drawerStack, setDrawerStack] = useState([]);
   const [aiNotes, setAiNotes] = useState(null);
   const [aiState, setAiState] = useState("idle");
   const [exported, setExported] = useState(false);
@@ -1247,7 +1370,7 @@ export default function App() {
   const [riskIntakeOpen, setRiskIntakeOpen] = useState(false);
   const resultRef = useRef(null);
 
-  const assessment = useMemo(() => submitted ? buildAssessment(submitted) : null, [submitted]);
+  const assessment = useMemo(() => submitted ? buildAssessment(submitted, overrides) : null, [submitted, overrides]);
   // Assessment id — scopes checklist progress so one initiative's progress
   // never bleeds into another's.
   const aid = submitted ? hashText(submitted) : "";
@@ -1261,38 +1384,100 @@ export default function App() {
     });
   };
 
-  const navigateTo = (id, kind) => {
+  // Drawer as a navigable stack so cross-links (risk → control → framework)
+  // have a working "back", instead of dead-ending at close.
+  const openDrawer = (entry) => { setDrawerStack([]); setDrawer(entry); };
+  const closeDrawer = () => { setDrawer(null); setDrawerStack([]); };
+  const drawerBack = () => {
+    setDrawerStack((s) => {
+      if (!s.length) return s;
+      const copy = s.slice();
+      const prev = copy.pop();
+      setDrawer(prev);
+      return copy;
+    });
+  };
+
+  const entryFor = (id, kind) => {
     if (kind === "RISK") {
       const r = RISKS[id];
-      if (r) {
-        const mapped = r.controls.map((cid) => CONTROLS[cid]).filter(Boolean);
-        setDrawer({ item: { ...r, residual: computeResidual(r.inherent, mapped) }, kind: "RISK" });
-      }
+      if (r) { const mapped = r.controls.map((cid) => CONTROLS[cid]).filter(Boolean); return { item: { ...r, residual: computeResidual(r.inherent, mapped) }, kind: "RISK" }; }
     } else if (kind === "CONTROL") {
       const c = CONTROLS[id];
-      if (c) setDrawer({ item: { ...c, procedures: CONTROL_PROCEDURES[id] || null }, kind: "CONTROL" });
+      if (c) return { item: { ...c, procedures: CONTROL_PROCEDURES[id] || null }, kind: "CONTROL" };
     } else if (kind === "FRAMEWORK") {
       const fw = FRAMEWORKS[id];
-      if (fw) setDrawer({ item: fw, kind: "FRAMEWORK" });
+      if (fw) return { item: fw, kind: "FRAMEWORK" };
     } else if (kind === "ARCHETYPE") {
       const a = ARCHETYPES.find((x) => x.id === id);
-      if (a) setDrawer({ item: a, kind: "ARCHETYPE" });
+      if (a) return { item: a, kind: "ARCHETYPE" };
     }
+    return null;
+  };
+  // Used both from the page (drawer closed → fresh open) and from inside the
+  // drawer (drawer open → push current onto the back stack).
+  const navigateTo = (id, kind) => {
+    const entry = entryFor(id, kind);
+    if (!entry) return;
+    if (drawer) setDrawerStack((s) => [...s, drawer]);
+    setDrawer(entry);
   };
 
   const run = (text) => {
     const t = text === undefined ? input : text;
     if (!t.trim()) return;
+    // A fresh run resets per-initiative archetype corrections but keeps the
+    // industry profile (a sticky, cross-assessment personalization).
+    const nextOv = { add: [], remove: [], industry: overrides.industry };
+    setOverrides(nextOv);
     setSubmitted(t);
     setAiNotes(null);
     setAiState("idle");
-    writeAssessmentToURL(t);
+    writeStateToURL(t, nextOv);
     setHistoryList((prev) => {
       const h = hashText(t);
       const next = [{ h, text: t, ts: Date.now() }, ...prev.filter((e) => e.h !== h)].slice(0, 20);
       saveHistory(next);
       return next;
     });
+  };
+
+  // Archetype override + industry mutators — recompute instantly (pure) and
+  // reflect the tuning in the URL so the shared link stays faithful.
+  const applyOverrides = (next) => {
+    setOverrides(next);
+    writeStateToURL(submitted, next);
+  };
+  const removeArchetype = (id) => {
+    if (assessment && assessment.activeArchetypeIds.length <= 1) return; // keep at least one
+    applyOverrides({ ...overrides, add: overrides.add.filter((x) => x !== id), remove: [...new Set([...overrides.remove, id])] });
+  };
+  const addArchetype = (id) => { if (!id) return; applyOverrides({ ...overrides, remove: overrides.remove.filter((x) => x !== id), add: [...new Set([...overrides.add, id])] }); };
+  const resetArchetypes = () => applyOverrides({ ...overrides, add: [], remove: [] });
+  const setIndustry = (id) => {
+    const next = { ...overrides, industry: id || null };
+    try { if (id) localStorage.setItem("grc-industry", id); else localStorage.removeItem("grc-industry"); } catch {}
+    applyOverrides(next);
+  };
+
+  const downloadCSV = (which) => {
+    if (!assessment) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (which === "risks") {
+      const rows = [["Risk ID", "Domain", "Class", "Title", "Inherent", "Target Residual", "Levels Reduced", "Control IDs", "Frameworks"]];
+      assessment.risks.forEach((r) => rows.push([r.id, r.domain, r.class, r.title, r.inherent, r.residual.residual, r.residual.levels, r.controls.join("; "), r.frameworks.join("; ")]));
+      downloadTextFile("grc-risk-register-" + stamp + ".csv", "text/csv;charset=utf-8", toCSV(rows));
+    } else if (which === "controls") {
+      const rows = [["Control ID", "Title", "Type", "Owner", "Frequency", "Addresses Risk IDs", "SCF Refs", "Evidence Expected"]];
+      assessment.controls.forEach((c) => rows.push([c.control.id, c.control.title, c.control.type, c.control.owner, c.control.frequency, c.addresses.join("; "), (SCF_MAPPING[c.control.id] || []).join("; "), c.control.evidence || ""]));
+      downloadTextFile("grc-control-matrix-" + stamp + ".csv", "text/csv;charset=utf-8", toCSV(rows));
+    } else if (which === "checklist") {
+      const rows = [["Control ID", "Control Title", "Step #", "Step", "Status"]];
+      assessment.controls.filter((c) => c.procedures && c.procedures.implementation).forEach((c) => {
+        c.procedures.implementation.forEach((step, i) => rows.push([c.control.id, c.control.title, i + 1, step, checkedSteps.has(aid + "|" + c.control.id + ":" + i) ? "Done" : "Open"]));
+      });
+      downloadTextFile("grc-implementation-checklist-" + stamp + ".csv", "text/csv;charset=utf-8", toCSV(rows));
+    }
   };
 
   const removeFromHistory = (h) => {
@@ -1552,7 +1737,7 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: C.canvas, color: C.ink, fontFamily: C.ui, backgroundImage: C.bgGlow }}>
-      <SourceDrawer item={drawer ? drawer.item : null} kind={drawer ? drawer.kind : null} onClose={() => setDrawer(null)} onNavigate={navigateTo} />
+      <SourceDrawer item={drawer ? drawer.item : null} kind={drawer ? drawer.kind : null} onClose={closeDrawer} onNavigate={navigateTo} onBack={drawerStack.length ? drawerBack : null} backLabel={drawerStack.length ? (drawerStack[drawerStack.length - 1].item.id || "Back") : null} />
 
       <header style={{ borderBottom: `1px solid ${C.line}`, padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: `${C.canvas}E8`, backdropFilter: "blur(10px)", zIndex: 20 }}>
         <button onClick={goHome} title="New assessment — back to start" aria-label="New assessment — back to start" style={{ display: "flex", alignItems: "center", gap: 11, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.ink, fontFamily: C.ui }}>
@@ -1608,6 +1793,14 @@ export default function App() {
             <span>Runs in-browser</span>
           </div>
           <div style={{ marginTop: 30, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12, flexWrap: "wrap" }}>
+              <label htmlFor="industry-select" style={{ fontFamily: C.mono, fontSize: 10.5, letterSpacing: "0.06em", color: C.inkFaint, textTransform: "uppercase" }}>Industry profile</label>
+              <select id="industry-select" value={overrides.industry || ""} onChange={(e) => setIndustry(e.target.value)} style={{ background: C.panelHi, border: `1px solid ${C.line}`, color: C.ink, borderRadius: 7, padding: "5px 10px", fontSize: 12.5, fontFamily: C.ui, cursor: "pointer" }}>
+                <option value="" style={{ background: C.panel }}>Auto / none</option>
+                {INDUSTRIES.map((ind) => <option key={ind.id} value={ind.id} style={{ background: C.panel }}>{ind.label}</option>)}
+              </select>
+              <span style={{ fontSize: 11.5, color: C.inkFaint, lineHeight: 1.4 }}>Weights business impact and pulls in the vertical's frameworks. Applies to every run until changed.</span>
+            </div>
             <textarea aria-label="Describe the technology initiative to assess" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }} placeholder="e.g. We are implementing a new third-party SaaS platform that stores customer payment information and integrates with our ERP…" rows={3} style={{ width: "100%", background: "transparent", border: "none", outlineOffset: 4, resize: "vertical", color: C.ink, fontSize: 15.5, lineHeight: 1.55, fontFamily: C.ui, minHeight: 70 }} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 12 }}>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -1662,12 +1855,34 @@ export default function App() {
             <section style={{ marginTop: 16 }}>
               <div style={{ background: C.accentSoft, border: `1px solid ${C.accent}40`, borderRadius: 12, padding: "16px 18px", marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 240 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <Mono style={{ fontSize: 11, letterSpacing: "0.08em", color: C.accent }}>CLASSIFIED AS</Mono>
-                    {assessment.archetypes.map((a) => <Pill key={a.id} color={C.accent} soft={`${C.accent}1A`}>{a.label}</Pill>)}
+                    {assessment.archetypes.map((a) => (
+                      <span key={a.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: C.mono, fontSize: 11, fontWeight: 500, letterSpacing: "0.03em", color: C.accent, background: `${C.accent}1A`, padding: "3px 4px 3px 9px", borderRadius: 4, border: `1px solid ${C.accent}33` }}>
+                        {a.label}{a.manual && <span title="Added manually" style={{ fontSize: 9, opacity: 0.8 }}>+</span>}
+                        {assessment.activeArchetypeIds.length > 1 && <button onClick={() => removeArchetype(a.id)} aria-label={"Remove " + a.label} title={"Remove " + a.label} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: 3, border: "none", background: "transparent", color: C.accent, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>}
+                      </span>
+                    ))}
+                    {(() => {
+                      const avail = ARCHETYPES.filter((a) => !assessment.activeArchetypeIds.includes(a.id));
+                      return avail.length ? (
+                        <select value="" onChange={(e) => addArchetype(e.target.value)} aria-label="Add a system archetype" style={{ background: C.canvas, border: `1px dashed ${C.accent}66`, color: C.accent, borderRadius: 6, padding: "4px 8px", fontSize: 11.5, fontWeight: 600, fontFamily: C.ui, cursor: "pointer" }}>
+                          <option value="" disabled>+ Add archetype</option>
+                          {avail.map((a) => <option key={a.id} value={a.id} style={{ color: C.ink, background: C.panel }}>{a.label}</option>)}
+                        </select>
+                      ) : null;
+                    })()}
+                    {assessment.manualTouched && (
+                      <button onClick={resetArchetypes} title="Reset to the engine's automatic classification" style={{ background: "transparent", border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 6, padding: "4px 9px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.ui }}>Reset to auto</button>
+                    )}
                   </div>
                   <div style={{ marginTop: 10, fontSize: 13, color: C.inkDim, lineHeight: 1.5 }}>
-                    Matched on {assessment.archetypes.flatMap((a) => a.matched).slice(0, 6).map((m, i) => <Mono key={i} style={{ color: C.ink, marginRight: 8 }}>{m}</Mono>)}
+                    {assessment.archetypes.some((a) => a.matched.length) ? (
+                      <>Matched on {assessment.archetypes.flatMap((a) => a.matched).slice(0, 6).map((m, i) => <Mono key={i} style={{ color: C.ink, marginRight: 8 }}>{m}</Mono>)}</>
+                    ) : (
+                      <span style={{ color: C.inkFaint }}>Classification set manually. Adjust the archetypes above to reshape the package.</span>
+                    )}
+                    {assessment.industry && <span style={{ marginLeft: 4 }}> · Industry profile: <Mono style={{ color: C.ink }}>{assessment.industry.label}</Mono>{assessment.industryOnlyCount > 0 && <span style={{ color: C.inkFaint }}> (+{assessment.industryOnlyCount} vertical-specific risk{assessment.industryOnlyCount === 1 ? "" : "s"})</span>}</span>}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1678,6 +1893,13 @@ export default function App() {
                     {exported ? "Downloaded ✓" : "↓ Export summary"}
                   </button>
                 </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 18, fontSize: 12.5, color: C.inkFaint }}>
+                <Mono style={{ fontSize: 10.5, letterSpacing: "0.06em", color: C.inkFaint }}>EXPORT TO SPREADSHEET</Mono>
+                {[{ k: "risks", label: "Risk register" }, { k: "controls", label: "Control matrix" }, { k: "checklist", label: "Checklist" }].map((o) => (
+                  <button key={o.k} onClick={() => downloadCSV(o.k)} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "transparent", border: `1px solid ${C.line}`, color: C.inkDim, borderRadius: 7, padding: "5px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.ui }}>↓ {o.label} CSV</button>
+                ))}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }} className="grid2">
@@ -1762,9 +1984,12 @@ export default function App() {
                   <SectionLabel n={secNumOf("risks")} title="Risk Register" hint="Inherent and target residual" />
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {assessment.risks.map((r) => (
-                      <Card key={r.id} onClick={() => setDrawer({ item: r, kind: "RISK" })}>
+                      <Card key={r.id} onClick={() => openDrawer({ item: r, kind: "RISK" })}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                          <Mono style={{ fontSize: 11, color: C.inkFaint, fontVariantNumeric: "tabular-nums" }}>{r.id}</Mono>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                            <Mono style={{ fontSize: 11, color: C.inkFaint, fontVariantNumeric: "tabular-nums" }}>{r.id}</Mono>
+                            {r.via === "industry" && assessment.industry && <span title={"In scope via the " + assessment.industry.label + " industry profile"} style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, letterSpacing: "0.04em", color: C.violet, border: `1px solid ${C.violet}55`, background: `${C.violet}14`, borderRadius: 4, padding: "1px 5px" }}>INDUSTRY</span>}
+                          </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <Pill color={RATING_COLOR[r.inherent]} soft={`${RATING_COLOR[r.inherent]}1A`}><SevIcon level={r.inherent} />{r.inherent}</Pill>
                             <span aria-hidden="true" style={{ color: C.inkFaint, fontSize: 12 }}>{"→"}</span>
@@ -1786,7 +2011,7 @@ export default function App() {
                   <SectionLabel n={secNumOf("controls")} title="Control Matrix" hint="Mapped to the risks they address" />
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {assessment.controls.map((c) => (
-                      <Card key={c.control.id} onClick={() => setDrawer({ item: { ...c.control, procedures: c.procedures }, kind: "CONTROL" })}>
+                      <Card key={c.control.id} onClick={() => openDrawer({ item: { ...c.control, procedures: c.procedures }, kind: "CONTROL" })}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                           <Mono style={{ fontSize: 11, color: C.inkFaint }}>{c.control.id}</Mono>
                           <Pill color={TYPE_COLOR[c.control.type]} soft={`${TYPE_COLOR[c.control.type]}1A`}>{c.control.type}</Pill>
@@ -1962,7 +2187,7 @@ export default function App() {
                             chain={c.chain}
                             spineRisk={c.spineRisk}
                             impactDomain={c.impactDomain}
-                            onRiskClick={() => { const r = assessment.risks.find((r) => r.id === c.spineRisk); if (r) setDrawer({ item: r, kind: "RISK" }); }}
+                            onRiskClick={() => { const r = assessment.risks.find((r) => r.id === c.spineRisk); if (r) openDrawer({ item: r, kind: "RISK" }); }}
                           />
                         </div>
                         <div style={{ fontSize: 12, color: C.inkDim, lineHeight: 1.5, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>{c.impact}</div>
@@ -2121,7 +2346,7 @@ export default function App() {
         )}
         </>
         ) : (
-          <LibraryBrowser onOpen={setDrawer} onNavigate={navigateTo} />
+          <LibraryBrowser onOpen={openDrawer} onNavigate={navigateTo} />
         )}
       </main>
       <footer style={{ borderTop: `1px solid ${C.line}`, marginTop: 60, padding: "28px 24px 32px", color: C.inkFaint, fontSize: 12, lineHeight: 1.55 }}>
